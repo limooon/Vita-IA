@@ -1,0 +1,370 @@
+{
+  "entities": {
+    "User": {
+      "title": "User Profile",
+      "description": "User account information, digestive conditions, anthropometric metrics, and subscription tier.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Unique identifier matching the Firebase Authentication UID."
+        },
+        "name": {
+          "type": "string",
+          "description": "The user's display name or username."
+        },
+        "email": {
+          "type": "string",
+          "description": "Validated user email address."
+        },
+        "subscriptionStatus": {
+          "type": "string",
+          "enum": ["free", "premium"],
+          "description": "Current subscription status."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Date and time of user profile registration."
+        },
+        "age": {
+          "type": "integer",
+          "description": "Age in years."
+        },
+        "weight": {
+          "type": "number",
+          "description": "Weight in kilograms."
+        },
+        "height": {
+          "type": "integer",
+          "description": "Height in centimeters."
+        },
+        "objective": {
+          "type": "string",
+          "description": "Core diet/health goal (e.g., reduce inflammation, lose weight, heal gastritis)."
+        }
+      },
+      "required": ["uid", "email", "subscriptionStatus", "createdAt"]
+    },
+    "Analysis": {
+      "title": "Food Analysis Record",
+      "description": "Generated nutraceutical analysis from food photograph upload.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Reference to the User."
+        },
+        "imageUrl": {
+          "type": "string",
+          "description": "URL of the analyzed image in Cloud Storage or base64 data."
+        },
+        "foods_detected": {
+          "type": "array",
+          "description": "Identifier/name lists of detected food elements."
+        },
+        "estimated_calories": {
+          "type": "integer",
+          "description": "Estimated total kilocalories."
+        },
+        "protein": {
+          "type": "number",
+          "description": "Protein content in grams."
+        },
+        "fat": {
+          "type": "number",
+          "description": "Fat content in grams."
+        },
+        "carbs": {
+          "type": "number",
+          "description": "Carbohydrate content in grams."
+        },
+        "digestive_risk": {
+          "type": "string",
+          "description": "Level of irritation/risk for digestive distress (Low, Medium, High)."
+        },
+        "recommendations": {
+          "type": "array",
+          "description": "Custom warnings or guidelines regarding digestive system reactions."
+        },
+        "alternatives": {
+          "type": "array",
+          "description": "Milder, digestive-safe alternative food options."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp when analysis was created."
+        }
+      },
+      "required": ["userId", "foods_detected", "estimated_calories", "protein", "fat", "carbs", "digestive_risk", "createdAt"]
+    },
+    "Recipe": {
+      "title": "Healthy Recipe",
+      "description": "Tailored recipes categorized by target digestive pathologies.",
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string"
+        },
+        "category": {
+          "type": "string",
+          "enum": ["gastritis", "colon_irritable", "weight_loss", "bloating", "healthy"]
+        },
+        "ingredients": {
+          "type": "array"
+        },
+        "preparation": {
+          "type": "array"
+        },
+        "calories": {
+          "type": "integer"
+        },
+        "protein": {
+          "type": "number"
+        },
+        "carbs": {
+          "type": "number"
+        },
+        "fat": {
+          "type": "number"
+        },
+        "benefits": {
+          "type": "array"
+        },
+        "isPremium": {
+          "type": "boolean"
+        }
+      },
+      "required": ["title", "category", "ingredients", "preparation", "calories", "isPremium"]
+    },
+    "MealPlan": {
+      "title": "Dietary Plan",
+      "description": "Nutritional diet plan of 7, 14, or 30 days generated according to personal metrics.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string"
+        },
+        "durationDays": {
+          "type": "integer"
+        },
+        "goal": {
+          "type": "string"
+        },
+        "targetConditions": {
+          "type": "array"
+        },
+        "planDays": {
+          "type": "array"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["userId", "durationDays", "planDays", "createdAt"]
+    },
+    "Subscription": {
+      "title": "SaaS Subscription Details",
+      "description": "Record representing current premium tier subscription status.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["active", "cancelled"]
+        },
+        "priceId": {
+          "type": "string"
+        },
+        "expiresAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["userId", "status", "expiresAt", "createdAt"]
+    },
+    "Payment": {
+      "title": "Stripe Decoupled Payment",
+      "description": "User transaction histories for billing verification.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string"
+        },
+        "amount": {
+          "type": "number"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["succeeded", "failed"]
+        },
+        "stripeSessionId": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["userId", "amount", "status", "stripeSessionId", "createdAt"]
+    },
+    "Notification": {
+      "title": "In-App Notification",
+      "description": "Contextual notifications about diet reminders or analyses results.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "read": {
+          "type": "boolean"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["userId", "title", "message", "read", "createdAt"]
+    },
+    "ChatHistory": {
+      "title": "Chat History Session",
+      "description": "A record containing communication history between the patient and ColonIA's nutraceutical specialist chatbot.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string"
+        },
+        "messages": {
+          "type": "array"
+        },
+        "lastUpdatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["userId", "messages", "lastUpdatedAt"]
+    }
+  },
+  "firestore": {
+    "users/{userId}": {
+      "schema": {
+        "$ref": "#/entities/User"
+      },
+      "description": "Stores user profiles containing digestive context, goals, and premium status."
+    },
+    "users/{userId}/analyses/{analysisId}": {
+      "schema": {
+        "$ref": "#/entities/Analysis"
+      },
+      "description": "Food photography scan records for each user."
+    },
+    "recipes/{recipeId}": {
+      "schema": {
+        "$ref": "#/entities/Recipe"
+      },
+      "description": "Public database of stomach-friendly recipes searchable by conditions."
+    },
+    "users/{userId}/meal_plans/{planId}": {
+      "schema": {
+        "$ref": "#/entities/MealPlan"
+      },
+      "description": "Dietary program sheets for 7, 14, or 30 days generated for each user."
+    },
+    "users/{userId}/subscriptions/{subscriptionId}": {
+      "schema": {
+        "$ref": "#/entities/Subscription"
+      },
+      "description": "Subscription registers that unlock unrestricted access."
+    },
+    "users/{userId}/payments/{paymentId}": {
+      "schema": {
+        "$ref": "#/entities/Payment"
+      },
+      "description": "Receipt logs of monthly billing."
+    },
+    "users/{userId}/notifications/{notificationId}": {
+      "schema": {
+        "$ref": "#/entities/Notification"
+      },
+      "description": "Localized nutrition tips and warning alerts."
+    },
+    "users/{userId}/chat_history/{chatId}": {
+      "schema": {
+        "$ref": "#/entities/ChatHistory"
+      },
+      "description": "Historic chats with the specialized AI stomach advisor."
+    },
+    "symptoms_logs/{logId}": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "user_id": { "type": "string" },
+          "date": { "type": "string", "format": "date-time" },
+          "symptom": { "type": "string" },
+          "severity": { "type": "string" },
+          "notes": { "type": "string" }
+        },
+        "required": ["user_id", "date", "symptom", "severity"]
+      },
+      "description": "User gastrointestinal symptom logs tracked dynamically over time."
+    },
+    "family_profiles/{profileId}": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "owner_id": { "type": "string" },
+          "name": { "type": "string" },
+          "age": { "type": "integer" },
+          "weight": { "type": "number" },
+          "height": { "type": "integer" },
+          "goal": { "type": "string" },
+          "restrictions": { "type": "string" }
+        },
+        "required": ["owner_id", "name", "age", "weight", "height", "goal"]
+      },
+      "description": "Secondary clinical profiles for family members registered in Modo Familiar."
+    },
+    "shopping_lists/{listId}": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "userId": { "type": "string" },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "items": { "type": "array" },
+          "estimatedCost": { "type": "number" }
+        },
+        "required": ["userId", "createdAt", "items", "estimatedCost"]
+      },
+      "description": "Weekly grocery cart selections desglosadas por pasillos con costeo automático."
+    },
+    "user_progress/{progressId}": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "userId": { "type": "string" },
+          "streakDays": { "type": "integer" },
+          "lastLogDate": { "type": "string", "format": "date-time" },
+          "mealsLoggedCount": { "type": "integer" },
+          "recipesLoggedCount": { "type": "integer" },
+          "photosAnalyzedCount": { "type": "integer" }
+        },
+        "required": ["userId", "streakDays", "lastLogDate"]
+      },
+      "description": "Gamification parameters logging current user strengths, daily challenges status and photos scanned counts."
+    }
+  }
+}

@@ -1,0 +1,188 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global Safety Net: Default Deny Catch-All
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- PRIMITIVE GLOBAL HELPERS ---
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isVerifiedUser() {
+      // Mandate that the user is verified to standard security rules.
+      // (If email is verified; fallback to normal auth state check if platform doesn't enforce standard verify)
+      return isSignedIn() && (request.auth.token.email_verified == true || request.auth.token.firebase.sign_in_provider == "google.com");
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // --- ENTITY-SPECIFIC SCHEMAS & VALIDATION HELPERS ---
+
+    function isValidUser(data) {
+      return data.uid is string 
+        && data.email is string
+        && data.email.size() <= 256
+        && data.subscriptionStatus in ['free', 'premium']
+        && (data.name == null || (data.name is string && data.name.size() <= 100));
+    }
+
+    function isValidAnalysis(data) {
+      return data.userId is string
+        && data.foods_detected is list
+        && data.foods_detected.size() <= 50
+        && data.estimated_calories is int
+        && data.estimated_calories >= 0
+        && data.protein is number
+        && data.fat is number
+        && data.carbs is number
+        && data.digestive_risk in ['Low', 'Medium', 'High']
+        && data.createdAt is timestamp;
+    }
+
+    function isValidRecipe(data) {
+      return data.title is string
+        && data.title.size() <= 200
+        && data.category in ['gastritis', 'colon_irritable', 'weight_loss', 'bloating', 'healthy']
+        && data.ingredients is list
+        && data.preparation is list
+        && data.calories is int
+        && data.isPremium is bool;
+    }
+
+    function isValidMealPlan(data) {
+      return data.userId is string
+        && data.durationDays in [7, 14, 30]
+        && data.planDays is list
+        && data.createdAt is timestamp;
+    }
+
+    function isValidChatHistory(data) {
+      return data.userId is string
+        && data.messages is list
+        && data.lastUpdatedAt is timestamp;
+    }
+
+    function isValidNotification(data) {
+      return data.userId is string
+        && data.title is string
+        && data.message is string
+        && data.read is bool;
+    }
+
+    // --- MATCH RULES PATHS ---
+
+    // 1. Users profiles
+    match /users/{userId} {
+      allow get: if isOwner(userId);
+      allow create: if isOwner(userId) && isValidUser(incoming()) && incoming().createdAt == request.time;
+      allow update: if isOwner(userId) && isValidUser(incoming())
+        && incoming().uid == existing().uid
+        && incoming().email == existing().email
+        && (
+          // Protect subscription status unless updated by admin, 
+          // or allow user action check if needed but restrict key modifications
+          incoming().diff(existing()).affectedKeys().hasOnly(['name', 'age', 'weight', 'height', 'objective', 'subscriptionStatus'])
+        );
+      allow delete: if false; // Deny account deletion through client SDK for retention
+    }
+
+    // 2. User Food Analyses (Subcollection)
+    match /users/{userId}/analyses/{analysisId} {
+      allow list, get: if isOwner(userId);
+      allow create: if isOwner(userId) && isValidId(analysisId) && isValidAnalysis(incoming()) && incoming().createdAt == request.time;
+      allow update, delete: if isOwner(userId);
+    }
+
+    // 3. Recipes (Publicly readable, system editable)
+    match /recipes/{recipeId} {
+      allow read: if isSignedIn(); // Any registered user can read recipes
+      allow create, update, delete: if false; // Client cannot edit cooking recipes directly, only system/admin
+    }
+
+    // 4. User Diet Plans (Subcollection)
+    match /users/{userId}/meal_plans/{planId} {
+      allow list, get: if isOwner(userId);
+      allow create: if isOwner(userId) && isValidId(planId) && isValidMealPlan(incoming()) && incoming().createdAt == request.time;
+      allow update, delete: if isOwner(userId);
+    }
+
+    // 5. User Subscriptions (History check)
+    match /users/{userId}/subscriptions/{subscriptionId} {
+      allow list, get: if isOwner(userId);
+      allow create: if isOwner(userId) && incoming().createdAt == request.time;
+      allow update: if isOwner(userId) && incoming().createdAt == existing().createdAt;
+      allow delete: if false; // Cannot delete subscription state manually
+    }
+
+    // 6. User Payment history
+    match /users/{userId}/payments/{paymentId} {
+      allow list, get: if isOwner(userId);
+      allow create: if isOwner(userId) && incoming().createdAt == request.time;
+      allow update, delete: if false; // Immutable payment records
+    }
+
+    // 7. Localized notifications
+    match /users/{userId}/notifications/{notificationId} {
+      allow list, get: if isOwner(userId);
+      allow create: if isOwner(userId) && isValidNotification(incoming()) && incoming().createdAt == request.time;
+      allow update: if isOwner(userId) && isValidNotification(incoming()) 
+        && incoming().diff(existing()).affectedKeys().hasOnly(['read']); // Can only toggle read state
+      allow delete: if isOwner(userId);
+    }
+
+    // 8. Chat history
+    match /users/{userId}/chat_history/{chatId} {
+      allow list, get: if isOwner(userId);
+      allow create: if isOwner(userId) && isValidId(chatId) && isValidChatHistory(incoming()) && incoming().lastUpdatedAt == request.time;
+      allow update: if isOwner(userId) && isValidChatHistory(incoming()) && incoming().lastUpdatedAt == request.time;
+      allow delete: if isOwner(userId);
+    }
+
+    // 9. Symptoms Logs
+    match /symptoms_logs/{logId} {
+      allow read, write: if isSignedIn() && (
+        (request.method == "create" && incoming().user_id == request.auth.uid) ||
+        (resource != null && resource.data.user_id == request.auth.uid)
+      );
+    }
+
+    // 10. Family Profiles
+    match /family_profiles/{profileId} {
+      allow read, write: if isSignedIn() && (
+        (request.method == "create" && incoming().owner_id == request.auth.uid) ||
+        (resource != null && resource.data.owner_id == request.auth.uid)
+      );
+    }
+
+    // 11. Shopping Lists
+    match /shopping_lists/{listId} {
+      allow read, write: if isSignedIn() && (
+        (request.method == "create" && incoming().userId == request.auth.uid) ||
+        (resource != null && resource.data.userId == request.auth.uid)
+      );
+    }
+
+    // 12. User Progress
+    match /user_progress/{userId} {
+      allow read, write: if isSignedIn() && userId == request.auth.uid;
+    }
+  }
+}
