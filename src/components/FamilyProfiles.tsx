@@ -34,6 +34,22 @@ export default function FamilyProfiles({
   const [restrictions, setRestrictions] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
 
+  // Customizable recommendations and 3-day menu states
+  const [customRecommendation, setCustomRecommendation] = useState("");
+  const [generatedPlan, setGeneratedPlan] = useState<any | null>(null);
+  const [isGeneratingPlan, setIsGeneratingPlan] = useState(false);
+  const [dietTracking, setDietTracking] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    if (activeProfile) {
+      setCustomRecommendation(
+        `Dieta digestiva optimizada para el perfil metabólico de ${activeProfile.name}. Consumir porciones controladas, evitar picantes, cafeína y alcohol. Integrar caldos y verduras hervidas.`
+      );
+      setGeneratedPlan(null);
+      setDietTracking({});
+    }
+  }, [activeProfile]);
+
   useEffect(() => {
     if (!isPremium) return;
     pullFamilyProfiles();
@@ -376,17 +392,30 @@ export default function FamilyProfiles({
           {/* Member summary views */}
           <div className="md:col-span-2">
             {activeProfile ? (
-              <div className="bg-white border border-slate-100 p-6 rounded-2xl shadow-sm space-y-6">
+              <div className="bg-white border border-slate-100 p-6 rounded-2xl shadow-sm space-y-6 print:border-none print:shadow-none print:p-0" id="family-active-profile-card">
                 
                 {/* Header profile details */}
-                <div className="flex items-center gap-3 border-b border-slate-50 pb-4">
-                  <div className="h-12 w-12 rounded-full bg-emerald-100 text-emerald-800 flex items-center justify-center font-bold text-lg">
-                    {activeProfile.name.charAt(0).toUpperCase()}
+                <div className="flex items-center justify-between border-b border-slate-50 pb-4">
+                  <div className="flex items-center gap-3">
+                    <div className="h-12 w-12 rounded-full bg-emerald-100 text-emerald-800 flex items-center justify-center font-bold text-lg print:border print:border-slate-300">
+                      {activeProfile.name.charAt(0).toUpperCase()}
+                    </div>
+                    <div>
+                      <h3 className="text-base font-extrabold text-slate-800">{activeProfile.name}</h3>
+                      <p className="text-xs text-slate-400">Perteneciente al núcleo familiar de {user.name}.</p>
+                    </div>
                   </div>
-                  <div>
-                    <h3 className="text-base font-extrabold text-slate-800">{activeProfile.name}</h3>
-                    <p className="text-xs text-slate-400">Perteneciente al núcleo familiar de {user.name}.</p>
-                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      window.print();
+                    }}
+                    className="rounded-xl border border-slate-200 px-3.5 py-1.5 text-xs font-bold text-slate-650 hover:bg-slate-50 flex items-center gap-1.5 print:hidden"
+                    title="Imprimir Plan de Dieta Familiar"
+                  >
+                    <span>🖨️ Imprimir Plan</span>
+                  </button>
                 </div>
 
                 {/* Submetrics grids */}
@@ -407,31 +436,163 @@ export default function FamilyProfiles({
 
                 {/* Clinical alignment indicator */}
                 <div className="p-4 bg-emerald-500/5 border border-emerald-500/10 rounded-xl space-y-1">
-                  <span className="text-[9px] font-bold text-emerald-800 uppercase tracking-widest block">Objetivo de Dietética Asignado</span>
+                  <span className="text-[9px] font-bold text-emerald-800 uppercase tracking-widest block font-mono">Objetivo de Dietética Asignado</span>
                   <h4 className="text-sm font-bold text-slate-800">{getGoalLabel(activeProfile.goal)}</h4>
                   <div className="text-xs text-slate-500 mt-2">
                     <span className="font-semibold text-slate-705 text-slate-700">Restricciones identificadas:</span> {activeProfile.restrictions}
                   </div>
                 </div>
 
-                {/* Safe food alternatives suggestions */}
-                <div className="space-y-3">
-                  <h4 className="text-xs font-extrabold text-slate-400 uppercase tracking-widest flex items-center gap-1.5 border-b border-slate-50 pb-1.5">
-                    <Utensils className="h-4 w-4 text-emerald-600" />
-                    <span>Recomendaciones Clínicas de Despensa</span>
-                  </h4>
-
-                  <div className="space-y-2">
-                    {getFamilyMemberSuggestions(activeProfile.goal, activeProfile.restrictions).map((sug, sId) => (
-                      <div key={sId} className="p-3 bg-slate-50 border border-slate-150 rounded-xl flex items-start gap-2">
-                        <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0 mt-0.5" />
-                        <span className="text-xs text-slate-600 font-medium leading-relaxed">{sug}</span>
-                      </div>
-                    ))}
-                  </div>
+                {/* Customizable Diet recommendations by counselor */}
+                <div className="space-y-2.5 bg-slate-50/50 p-4 rounded-xl border border-slate-100 print:bg-white print:p-0 print:border-none">
+                  <label className="text-xs font-bold text-slate-600 uppercase tracking-wide block">
+                    ✍️ Directriz / Recomendación de Dieta para {activeProfile.name}
+                  </label>
+                  <textarea
+                    value={customRecommendation}
+                    onChange={(e) => setCustomRecommendation(e.target.value)}
+                    rows={2}
+                    className="w-full text-xs rounded-xl border border-slate-205 p-3 bg-white focus:outline-none focus:ring-1 focus:ring-emerald-500 print:border-none print:p-0"
+                    placeholder="Escribe la recomendación del doctor o nutriólogo para el familiar..."
+                  />
+                  
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsGeneratingPlan(true);
+                      setTimeout(() => {
+                        const isGastritis = activeProfile?.goal === "gastritis";
+                        const isSII = activeProfile?.goal === "colon_irritable";
+                        
+                        const menu = [
+                          {
+                            day: 1,
+                            breakfast: isGastritis ? "Licuado de papaya madura con avena en agua tibia" : isSII ? "Omelette de claras con calabacita asada (bajo FODMAP)" : "Yogur griego descremado con bayas frescas",
+                            lunch: isGastritis ? "Caldo de pollo desgrasado con arroz y zanahoria bien hervida" : isSII ? "Lomo de pescado al vapor con puré de camote" : "Ensalada tibia con pechuga asada y limón",
+                            dinner: isGastritis ? "Crema sazonada de calabacita y arroz hervido" : isSII ? "Caldo ligero de lomo de pavo con calabacín" : "Gelatina de fresa digestiva en agua pura"
+                          },
+                          {
+                            day: 2,
+                            breakfast: isGastritis ? "Avena tibia cocida en agua con gajos de plátano" : isSII ? "Huevo poché tierno con ejotes y aderezo ligero de romero" : "1 rebanada de pan de centeno con aguacate",
+                            lunch: isGastritis ? "Filete de pescado blanco empapelado con chayote hervido" : isSII ? "Pechuga de pavo horneada con arroz blanco tierno" : "Sopa de lentejas casera con verduras limpias",
+                            dinner: isGastritis ? "Puré de pera cocido con infusión tibia de manzanilla" : isSII ? "Gelatina orgánica de arándano de agua caliente" : "Compota suave de manzana sin azúcar"
+                          },
+                          {
+                            day: 3,
+                            breakfast: isGastritis ? "Manzana hervida machacada con pizca de avena" : isSII ? "Batido energizante de leche de almendras y papaya dulce" : "Huevos revueltos tiernos con espinacas cocidas",
+                            lunch: isGastritis ? "Sopa de pollo con fideos de arroz y calabaza italiana" : isSII ? "Pechuga de pollo deshebrada con zanahorias asadas" : "Filete de pescado al sarten con brócoli al vapor",
+                            dinner: isGastritis ? "Papaya dulce picada con infusión de jengibre suave" : isSII ? "Crema rústica de calabacita asada digestiva" : "Cena ligera de kéfir con fresas picadas"
+                          }
+                        ];
+                        setGeneratedPlan(menu);
+                        setIsGeneratingPlan(false);
+                      }, 820);
+                    }}
+                    className="rounded-xl bg-emerald-500 hover:bg-emerald-600 px-4 py-2 text-xs font-bold text-white shadow-sm flex items-center justify-center gap-1.5 transition-colors mt-2 print:hidden"
+                  >
+                    <span>✨ Generar Plan de Dieta (3 Días)</span>
+                  </button>
                 </div>
 
-                <div className="bg-amber-50/20 border border-amber-100 rounded-xl p-3.5 flex items-start space-x-2.5">
+                {/* Simulated Generated Plan Display with checkboxes for tracking */}
+                {isGeneratingPlan ? (
+                  <div className="py-6 text-center space-y-2">
+                    <Loader2 className="h-5 w-5 animate-spin text-emerald-500 mx-auto" />
+                    <p className="text-xs text-slate-400">Modelando menú de fácil digestión para {activeProfile.name}...</p>
+                  </div>
+                ) : generatedPlan ? (
+                  <div className="space-y-4 animate-fade-in text-slate-700" id="diet-plan-sheet">
+                    <div className="border-b border-slate-105 pb-2 flex items-center justify-between">
+                      <h4 className="text-xs font-bold text-slate-450 uppercase flex items-center gap-1">
+                        <Utensils className="h-4 w-4 text-emerald-600" />
+                        <span>Menú Nutricional y Seguimiento</span>
+                      </h4>
+                      <span className="text-[10px] text-emerald-800 bg-emerald-50 font-bold px-2 py-0.5 rounded-full print:hidden">
+                        Apego: {Math.round((Object.values(dietTracking).filter(Boolean).length / 9) * 100)}%
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      {generatedPlan.map((d: any) => (
+                        <div key={d.day} className="border border-slate-100 p-4 rounded-xl bg-slate-50/30 space-y-3 print:bg-white print:border-slate-200">
+                          <h5 className="text-xs font-bold text-slate-800 border-b border-slate-100 pb-1 flex justify-between items-center">
+                            <span>Día {d.day}</span>
+                            <span className="text-[9px] text-slate-400 uppercase">Clínico</span>
+                          </h5>
+
+                          <div className="space-y-2.5">
+                            <div>
+                              <span className="text-[9px] uppercase font-bold text-orange-650 font-mono block">🍳 Desayuno</span>
+                              <label className="flex items-start gap-1.5 mt-0.5 cursor-pointer text-xs">
+                                <input
+                                  type="checkbox"
+                                  checked={!!dietTracking[`d${d.day}_b`]}
+                                  onChange={() => setDietTracking(prev => ({ ...prev, [`d${d.day}_b`]: !prev[`d${d.day}_b`] }))}
+                                  className="mt-0.5 rounded border-slate-350 text-emerald-600 focus:ring-emerald-500 h-3.5 w-3.5 print:hidden"
+                                />
+                                <span className={`text-[11px] leading-tight ${dietTracking[`d${d.day}_b`] ? "text-slate-400 line-through" : "text-slate-700"}`}>
+                                  {d.breakfast}
+                                </span>
+                              </label>
+                            </div>
+
+                            <div>
+                              <span className="text-[9px] uppercase font-bold text-teal-655 font-mono block text-teal-600">🍲 Almuerzo</span>
+                              <label className="flex items-start gap-1.5 mt-0.5 cursor-pointer text-xs">
+                                <input
+                                  type="checkbox"
+                                  checked={!!dietTracking[`d${d.day}_l`]}
+                                  onChange={() => setDietTracking(prev => ({ ...prev, [`d${d.day}_l`]: !prev[`d${d.day}_l`] }))}
+                                  className="mt-0.5 rounded border-slate-350 text-emerald-600 focus:ring-emerald-500 h-3.5 w-3.5 print:hidden"
+                                />
+                                <span className={`text-[11px] leading-tight ${dietTracking[`d${d.day}_l`] ? "text-slate-400 line-through" : "text-slate-700"}`}>
+                                  {d.lunch}
+                                </span>
+                              </label>
+                            </div>
+
+                            <div>
+                              <span className="text-[9px] uppercase font-bold text-indigo-650 font-mono block">🥣 Cena</span>
+                              <label className="flex items-start gap-1.5 mt-0.5 cursor-pointer text-xs">
+                                <input
+                                  type="checkbox"
+                                  checked={!!dietTracking[`d${d.day}_d`]}
+                                  onChange={() => setDietTracking(prev => ({ ...prev, [`d${d.day}_d`]: !prev[`d${d.day}_d`] }))}
+                                  className="mt-0.5 rounded border-slate-350 text-emerald-600 focus:ring-emerald-500 h-3.5 w-3.5 print:hidden"
+                                />
+                                <span className={`text-[11px] leading-tight ${dietTracking[`d${d.day}_d`] ? "text-slate-400 line-through" : "text-slate-700"}`}>
+                                  {d.dinner}
+                                </span>
+                              </label>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    <p className="text-[9px] text-slate-400 italic text-center pt-1 print:hidden">
+                      💡 Pulsa en las casillas para marcar los platillos consumidos por {activeProfile.name} y dar un seguimiento clínico exacto.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <h4 className="text-xs font-extrabold text-slate-400 uppercase tracking-widest flex items-center gap-1.5 border-b border-slate-50 pb-1.5">
+                      <Utensils className="h-4 w-4 text-emerald-600" />
+                      <span>Recomendaciones Clínicas de Despensa</span>
+                    </h4>
+
+                    <div className="space-y-2">
+                      {getFamilyMemberSuggestions(activeProfile.goal, activeProfile.restrictions).map((sug, sId) => (
+                        <div key={sId} className="p-3 bg-slate-50 border border-slate-150 rounded-xl flex items-start gap-2">
+                          <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0 mt-0.5" />
+                          <span className="text-xs text-slate-600 font-medium leading-relaxed">{sug}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="bg-amber-50/20 border border-amber-100 rounded-xl p-3.5 flex items-start space-x-2.5 print:hidden">
                   <Shield className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" />
                   <p className="text-[10px] text-amber-800 leading-normal">
                     <strong>Advertencia Pediátrica/Geriátrica</strong>: Al diseñar las papillas o caldos del perfil familiar, evita la sobrecondimentación de pimienta o cúrcuma comercial, ya que sus mucosas suelen absorber con mayor velocidad liberando reflujo enzimático veloz.

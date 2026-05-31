@@ -1,8 +1,22 @@
-import React, { useState } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { UserProfile } from "../types";
 import { 
-  ArrowLeft, Barcode, Camera, Sparkles, CheckCircle2, AlertTriangle, 
-  HelpCircle, ShieldCheck, HeartPulse, RefreshCcw, Loader2, Upload, Search, Check, Ban
+  ArrowLeft, 
+  Camera, 
+  Upload,
+  Video,
+  VideoOff,
+  Loader2, 
+  CheckCircle, 
+  AlertCircle, 
+  Activity, 
+  Sparkles, 
+  TrendingUp, 
+  ShieldCheck, 
+  RotateCcw,
+  FileText,
+  BadgeAlert,
+  HelpCircle
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
@@ -11,406 +25,537 @@ interface SupermarketScannerProps {
   onViewChange: (view: string) => void;
 }
 
-export default function SupermarketScanner({
-  user,
-  onViewChange
-}: SupermarketScannerProps) {
-  const isPremium = user.subscriptionStatus === "premium";
+interface ScanResult {
+  productName: string;
+  barcode: string;
+  sugars: string;
+  fats: string;
+  sodium: string;
+  preservatives: string;
+  colorants: string;
+  ultraprocessed: string;
+  digestiveScore: number;
+  nutritionScore: number;
+  classification: string;
+  alternatives: string[];
+  analysisSummary: string;
+}
 
-  // Scanner flow states
-  const [barcodeInput, setBarcodeInput] = useState("");
-  const [labelPhoto, setLabelPhoto] = useState<string | null>(null);
-  const [analyzing, setAnalyzing] = useState(false);
-  const [result, setResult] = useState<any | null>(null);
+export default function SupermarketScanner({ user, onViewChange }: SupermarketScannerProps) {
+  const [scanning, setScanning] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
+  const [result, setResult] = useState<ScanResult | null>(null);
 
-  const presetProducts = [
-    { name: "Yogur Griego Natural Sin Azúcar", code: "7501055904251", tags: "Yogur" },
-    { name: "Sopa Instantánea Maruchan de Pollo", code: "041789001214", tags: "Ultraprocesado" },
-    { name: "Galletas de Avena con Pasas", code: "7501000632231", tags: "Cereal Dulce" },
-    { name: "Leche Semidescremada Sin Lactosa", code: "7501020516541", tags: "Lácteo Seguro" }
-  ];
+  // Drag and drop / file upload
+  const [dragActive, setDragActive] = useState(false);
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
 
-  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  // Live Camera state
+  const [isCameraLive, setIsCameraLive] = useState(false);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
 
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      setLabelPhoto(reader.result as string);
-      setResult(null);
-      setErrorMsg("");
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const handleScanProduct = async (codeToUse?: string) => {
-    const code = codeToUse || barcodeInput;
-    if (!code.trim() && !labelPhoto) {
-      setErrorMsg("Por favor, ingresa un código de barra o carga una foto de la etiqueta nutricional.");
-      return;
-    }
-
-    setAnalyzing(true);
+  const triggerScan = async (payload: { imageBase64?: string; barcode?: string }) => {
+    setScanning(true);
     setErrorMsg("");
     setResult(null);
 
     try {
+      // If we don't have barcode, supply a placeholder ID
+      const finalPayload = {
+        ...payload,
+        barcode: payload.barcode || "FOTO_ESCANEO_" + Math.floor(Math.random() * 1000000)
+      };
+
       const response = await fetch("/api/scan-grocery", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          barcode: code || null,
-          imageBase64: labelPhoto || null
-        })
+        body: JSON.stringify(finalPayload)
       });
-
       const data = await response.json();
-      if (data.success) {
+      if (data.success && data.scan) {
         setResult(data.scan);
       } else {
-        throw new Error(data.error || "Fallo el análisis visual del producto.");
+        throw new Error("No se pudo decodificar o analizar la etiqueta alimenticia. Intenta con otra toma más nítida.");
       }
-    } catch (err: any) {
-      console.warn("Error scanning grocery:", err);
-      // Fallback robust simulation based on code / label behavior
-      setTimeout(() => {
-        let mockedScan = {
-          productName: code === "7501055904251" ? "Yogur Griego Natural Sin Azúcar" :
-                       code === "041789001214" ? "Sopa Instantánea Maruchan de Pollo" :
-                       code === "7501000632231" ? "Galletas de Avena con Pasas" :
-                       labelPhoto ? "Producto Analizado por Etiqueta" : "Producto de Despensa General",
-          barcode: code || "Escaneado por Foto",
-          sugars: code === "7501055904251" ? "Bajo (0.5g/100g)" : "Medio-Alto",
-          fats: code === "7501055904251" ? "Bajo (2g/100g)" : "Saturadas (Altas)",
-          sodium: code === "041789001214" ? "Crítico (1200mg/porción)" : "Moderado",
-          preservatives: code === "041789001214" ? "Presentes (Glutamato Monosódico, TBHQ)" : "Mínimos",
-          colorants: code === "041789001214" ? "Amarillo 5, Amarillo 6" : "Ninguno",
-          ultraprocessed: code === "041789001214" ? "Muy Alto (Ingredientes procesados refinados)" : "Moderado",
-          digestiveScore: code === "7501055904251" ? 95 : code === "041789001214" ? 15 : 60,
-          nutritionScore: code === "7501055904251" ? 90 : code === "041789001214" ? 20 : 55,
-          classification: code === "7501055904251" ? "Excelente" : code === "041789001214" ? "Evitar" : "Regular",
-          alternatives: [
-            "Optar por caldos de verduras caseros sin ajo ni cebolla.",
-            "Consumir gelatinas de agua sin endulzantes artificiales fuertes.",
-            "Yogur de coco desgrasado o kéfir de agua de fácil absorción."
-          ],
-          analysisSummary: "El producto presenta conservadores químicos y glutamato que aceleran la irritación gástrica, inflamando las vellosidades intestinales."
-        };
-        setResult(mockedScan);
-      }, 1500);
+    } catch (e: any) {
+      setErrorMsg(e.message || "Error al conectar con la IA de decodificación.");
     } finally {
-      setAnalyzing(false);
+      setScanning(false);
     }
   };
 
-  const getBadgeStyle = (classification: string) => {
-    switch (classification) {
-      case "Excelente":
-        return "bg-emerald-500 text-white";
-      case "Bueno":
-        return "bg-teal-500 text-white";
-      case "Regular":
-        return "bg-amber-500 text-white";
-      case "Evitar":
-        return "bg-rose-500 text-white";
-      default:
-        return "bg-slate-500 text-white";
+  // Turn on live in-app camera helper
+  const startCamera = async () => {
+    setIsCameraLive(true);
+    setErrorMsg("");
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "environment" }
+      });
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+      }
+    } catch (err: any) {
+      console.warn("Direct webcam access failed (possibly due to iframe restrictions):", err);
+      setErrorMsg("El acceso directo a la cámara falló. Por favor, utiliza la opción 'Tomar foto nativa' o 'Subir Imagen' que funcionan de manera compatible.");
+      setIsCameraLive(false);
     }
+  };
+
+  const stopCamera = () => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+    }
+    setIsCameraLive(false);
+  };
+
+  const capturePhoto = () => {
+    if (videoRef.current) {
+      try {
+        const canvas = document.createElement("canvas");
+        // Ensure accurate proportions
+        canvas.width = videoRef.current.videoWidth || 640;
+        canvas.height = videoRef.current.videoHeight || 480;
+        const ctx = canvas.getContext("2d");
+        if (ctx) {
+          ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
+          const dataUrl = canvas.toDataURL("image/jpeg");
+          setSelectedImage(dataUrl);
+          stopCamera();
+          triggerScan({ imageBase64: dataUrl });
+        }
+      } catch (err) {
+        setErrorMsg("Error al capturar la imagen. Intenta cargando un archivo.");
+      }
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      // Safety clean
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((track) => track.stop());
+      }
+    };
+  }, []);
+
+  // Convert uploaded image or native system camera file to base64
+  const handleImageFile = (file: File) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const base64String = reader.result as string;
+      setSelectedImage(base64String);
+      triggerScan({ imageBase64: base64String });
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleDrag = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.type === "dragenter" || e.type === "dragover") {
+      setDragActive(true);
+    } else if (e.type === "dragleave") {
+      setDragActive(false);
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(false);
+
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      handleImageFile(e.dataTransfer.files[0]);
+    }
+  };
+
+  const getClassificationColor = (classification: string) => {
+    const cls = classification.toLowerCase();
+    if (cls.includes("excelente") || cls.includes("bueno")) {
+      return "bg-emerald-50 text-emerald-800 border-emerald-200";
+    }
+    if (cls.includes("regular") || cls.includes("moderado")) {
+      return "bg-amber-50 text-amber-800 border-amber-200";
+    }
+    return "bg-rose-50 text-rose-800 border-rose-200";
+  };
+
+  const getScoreColor = (score: number) => {
+    if (score >= 80) return "text-emerald-600";
+    if (score >= 55) return "text-amber-600";
+    return "text-rose-600";
   };
 
   return (
     <div className="space-y-6 max-w-4xl mx-auto animate-fade-in" id="supermarket-scanner-main">
-      <div className="flex items-center space-x-2">
-        <button 
-          onClick={() => onViewChange("dashboard")}
-          className="p-1 px-3 rounded-xl border border-slate-200 text-xs font-semibold hover:bg-slate-100 flex items-center gap-1 transition-colors"
+      
+      {/* Back button */}
+      <div className="flex items-center space-x-2 text-xs">
+        <button
+          onClick={() => {
+            stopCamera();
+            onViewChange("dashboard");
+          }}
+          className="font-mono text-slate-450 hover:text-slate-800 transition-colors flex items-center gap-1 font-bold"
           id="scanner-back-btn"
         >
-          <ArrowLeft className="h-4 w-4" />
-          <span>Volver</span>
+          <ArrowLeft className="h-3 w-3" />
+          <span>Volver al Dashboard</span>
         </button>
         <span className="text-slate-300 font-mono">/</span>
-        <span className="text-xs font-mono font-bold text-slate-500">Escáner de Supermercado IA</span>
+        <span className="text-xs font-mono font-bold text-slate-500">Decodificador Alimentario</span>
       </div>
 
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h2 className="text-2xl font-bold tracking-tight text-slate-900 flex items-center gap-2">
-            <Barcode className="h-6 w-6 text-indigo-600" />
-            <span>Escáner de Supermercado IA</span>
-          </h2>
-          <p className="text-sm text-slate-500">
-            Analiza códigos de barras o fotografías de ingredientes para descartar ultraprocesados molestos para tu colon.
-          </p>
-        </div>
-        {!isPremium && (
-          <span className="rounded-full bg-amber-100 border border-amber-200 px-3 py-1 text-xs font-semibold text-amber-800 flex items-center gap-1">
-            <Sparkles className="h-3.5 w-3.5 text-amber-600" />
-            <span>Módulo Premium</span>
-          </span>
-        )}
+      {/* Head banner */}
+      <div>
+        <h2 className="text-2xl font-bold tracking-tight text-slate-900 flex items-center gap-2">
+          <Camera className="h-6 w-6 text-emerald-600" />
+          <span>VitaMarket: Cámara Decodificadora de Etiquetas IA</span>
+        </h2>
+        <p className="text-sm text-slate-500">
+          Analiza al instante cualquier producto tomando una foto real o cargándola desde tu dispositivo. Nuestra IA procesará la tabla de ingredientes y desglosará aditivos perjudiciales, azúcares ocultos y estresores digestivos.
+        </p>
       </div>
 
-      {!isPremium ? (
-        // Playful paywall layout
-        <div className="rounded-2xl border border-indigo-100 bg-indigo-50/10 p-8 text-center space-y-4 max-w-lg mx-auto">
-          <Barcode className="mx-auto h-12 w-12 text-indigo-500 animate-pulse" />
-          <h3 className="text-lg font-bold text-slate-800">Decodificador de Alimentos</h3>
-          <p className="text-xs text-slate-500 leading-relaxed">
-            ¿No estás seguro de si un alimento envasado en el supermercado dañará tu mucosa gástrica o te causará distensión? Captura la tabla de ingredientes o introduce el código e identifica azúcares nocivos, conservantes irritantes y colorantes sintéticos.
-          </p>
-          <div className="pt-2">
-            <button
-              onClick={() => onViewChange("premium")}
-              className="rounded-xl bg-amber-400 hover:bg-amber-500 px-6 py-2.5 text-xs font-extrabold text-teal-950 transition-all shadow-sm flex items-center justify-center gap-1.5 mx-auto"
-              id="scanner-paywall-upgrade-btn"
-            >
-              <Sparkles className="h-4 w-4" />
-              <span>Desbloquear Escáner de Supermercado</span>
-            </button>
-          </div>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-          
-          {/* Controls form panels */}
-          <div className="md:col-span-1 space-y-6">
-            <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm space-y-5">
-              <h3 className="text-sm font-bold text-slate-800 border-b border-slate-50 pb-2 flex items-center gap-1.5">
-                <Camera className="h-4 w-4 text-slate-500" />
-                <span>Elegir entrada de escaneo</span>
-              </h3>
+      <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
+        
+        {/* Left Side: Upload & Camera Capture Panel */}
+        <div className="md:col-span-5 space-y-4">
+          <div className="bg-white border border-slate-100 rounded-2xl p-5 shadow-sm space-y-4">
+            
+            <h3 className="text-xs font-extrabold text-slate-400 uppercase tracking-widest border-b border-slate-50 pb-2 flex items-center justify-between">
+              <span>Captura de Imagen</span>
+              <span className="h-2 w-2 bg-emerald-500 rounded-full animate-pulse" />
+            </h3>
 
-              {/* Barcode Simulator Input */}
-              <div className="space-y-2">
-                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Código de Barras de Simulación</label>
-                <div className="flex space-x-2">
-                  <input
-                    type="text"
-                    value={barcodeInput}
-                    onChange={(e) => {
-                      setBarcodeInput(e.target.value);
-                      setLabelPhoto(null);
-                    }}
-                    placeholder="Ej. 7501055904251"
-                    className="flex-1 rounded-xl border border-slate-200 px-3 py-2 text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-none bg-slate-50/50"
-                  />
-                  <button
-                    onClick={() => handleScanProduct()}
-                    className="p-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl rounded-lg"
-                    id="barcode-search-btn"
-                  >
-                    <Search className="h-4 w-4" />
-                  </button>
-                </div>
-              </div>
+            {/* Direct Device Action Triggers */}
+            <div className="space-y-2">
+              
+              {/* Option 1: Native Mobile/Desktop System Camera File Capture */}
+              <button
+                type="button"
+                onClick={() => document.getElementById("native-camera-capture")?.click()}
+                className="w-full rounded-xl bg-slate-800 hover:bg-slate-900 text-white py-2 px-3 text-xs font-bold transition flex items-center justify-center gap-2"
+              >
+                <Camera className="h-4 w-4 text-emerald-400" />
+                <span>Tomar Foto con Cámara</span>
+              </button>
+              
+              {/* Hidden native input with capture="environment" to force system camera application on mobile */}
+              <input
+                id="native-camera-capture"
+                type="file"
+                accept="image/*"
+                capture="environment"
+                onChange={(e) => {
+                  if (e.target.files && e.target.files[0]) {
+                    stopCamera();
+                    handleImageFile(e.target.files[0]);
+                  }
+                }}
+                className="hidden"
+              />
 
-              {/* Separator */}
-              <div className="relative flex items-center justify-center py-2">
-                <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-slate-150" /></div>
-                <span className="relative bg-white px-3 text-[10px] text-slate-400 uppercase font-bold tracking-wider">o fotografiar etiqueta</span>
-              </div>
-
-              {/* Tag upload photo */}
-              <div className="space-y-3">
-                <div className="border-2 border-dashed border-slate-200 rounded-xl p-4 text-center hover:bg-slate-50/50 transition-colors relative">
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={handlePhotoUpload}
-                    className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
-                    id="tag-photo-uploader"
-                  />
-                  <Upload className="h-6 w-6 text-slate-350 mx-auto mb-2" />
-                  <span className="text-xs font-bold text-slate-600 block">Subir Imagen de Ingredientes</span>
-                  <span className="text-[10px] text-slate-400 block mt-1">Saca foto a la parte trasera del producto</span>
-                </div>
-
-                {labelPhoto && (
-                  <div className="relative rounded-xl overflow-hidden border border-slate-100 max-h-[140px]">
-                    <img src={labelPhoto} className="w-full h-full object-cover" alt="Label" />
+              {/* Option 2: Live HTML5 webcam toggle wrapper */}
+              {!isCameraLive ? (
+                <button
+                  type="button"
+                  onClick={startCamera}
+                  className="w-full rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 py-2 px-3 text-xs font-bold transition flex items-center justify-center gap-2"
+                >
+                  <Video className="h-4 w-4 text-indigo-500" />
+                  <span>Transmitir Cámara Web</span>
+                </button>
+              ) : (
+                <div className="space-y-2 bg-slate-50 p-2.5 rounded-xl border border-slate-100">
+                  <div className="relative aspect-video rounded-lg overflow-hidden bg-black border border-slate-200">
+                    <video
+                      ref={videoRef}
+                      autoPlay
+                      playsInline
+                      className="w-full h-full object-cover"
+                    />
+                    <div className="absolute top-2 right-2 flex items-center gap-1 bg-rose-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded">
+                      <span className="h-1.5 w-1.5 bg-white rounded-full animate-ping" />
+                      <span>LIVE</span>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
                     <button
-                      onClick={() => setLabelPhoto(null)}
-                      className="absolute right-2 top-2 h-6 w-6 bg-black/60 hover:bg-black/80 rounded-full text-white text-[10px] flex items-center justify-center"
+                      type="button"
+                      onClick={capturePhoto}
+                      className="rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white py-1.5 text-xs font-bold transition"
                     >
-                      X
+                      📸 Obturar Foto
+                    </button>
+                    <button
+                      type="button"
+                      onClick={stopCamera}
+                      className="rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-700 py-1.5 text-xs font-bold transition flex items-center justify-center gap-1"
+                    >
+                      <VideoOff className="h-3.5 w-3.5" />
+                      <span>Apagar</span>
                     </button>
                   </div>
-                )}
-              </div>
-
-              {labelPhoto && (
-                <button
-                  onClick={() => handleScanProduct()}
-                  className="w-full rounded-xl bg-indigo-600 hover:bg-indigo-700 py-2.5 text-xs font-bold text-white shadow-sm transition-all flex items-center justify-center gap-1.5"
-                  id="scan-label-btn"
-                >
-                  <Sparkles className="h-4 w-4" />
-                  <span>Analizar con IA Nutricional</span>
-                </button>
+                </div>
               )}
-
-              {errorMsg && <p className="text-xs text-rose-600 bg-rose-50 p-2.5 rounded-xl">{errorMsg}</p>}
             </div>
 
-            {/* Presets List */}
-            <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm space-y-3">
-              <h3 className="text-xs font-extrabold text-slate-400 uppercase tracking-widest">Ejemplos Rápidos de Góndola</h3>
-              <div className="grid grid-cols-1 gap-2">
-                {presetProducts.map((p, i) => (
-                  <button
-                    key={i}
-                    onClick={() => {
-                      setBarcodeInput(p.code);
-                      setLabelPhoto(null);
-                      handleScanProduct(p.code);
-                    }}
-                    className="p-2.5 bg-slate-50 hover:bg-slate-100 rounded-xl border border-slate-150/50 text-left transition-colors flex items-center justify-between"
-                  >
-                    <div>
-                      <p className="text-xs font-bold text-slate-800 leading-tight">{p.name}</p>
-                      <p className="text-[9px] text-slate-400 font-mono mt-0.5">{p.code}</p>
-                    </div>
-                    <span className="text-[9px] bg-slate-200 text-slate-700 rounded-full px-1.5 py-0.5 font-semibold shrink-0 ml-1">
-                      {p.tags}
-                    </span>
-                  </button>
-                ))}
+            <div className="relative flex py-2 items-center">
+              <div className="flex-grow border-t border-slate-100"></div>
+              <span className="flex-shrink mx-3 text-[10px] text-slate-400 uppercase font-black tracking-widest">O Carga un Archivo</span>
+              <div className="flex-grow border-t border-slate-100"></div>
+            </div>
+
+            {/* Drag and Drop label block */}
+            <div
+              onDragEnter={handleDrag}
+              onDragOver={handleDrag}
+              onDragLeave={handleDrag}
+              onDrop={handleDrop}
+              className={`border-2 border-dashed rounded-2xl p-6 text-center transition cursor-pointer flex flex-col items-center justify-center space-y-3 ${
+                dragActive 
+                  ? "border-emerald-400 bg-emerald-50/30" 
+                  : "border-slate-200 bg-slate-50/50 hover:bg-slate-50"
+              }`}
+              onClick={() => document.getElementById("label-file-upload")?.click()}
+            >
+              <input
+                id="label-file-upload"
+                type="file"
+                accept="image/*"
+                onChange={(e) => {
+                  if (e.target.files && e.target.files[0]) {
+                    stopCamera();
+                    handleImageFile(e.target.files[0]);
+                  }
+                }}
+                className="hidden"
+              />
+
+              <div className="p-3 bg-white rounded-xl shadow-sm border border-slate-100 text-emerald-600">
+                <Upload className="h-6 w-6" />
+              </div>
+
+              <div>
+                <span className="text-xs font-bold text-slate-800 block">Sube un archivo existente</span>
+                <span className="text-[10px] text-slate-400 mt-1 block">Arrastra el archivo o haz clic para importarlo</span>
+              </div>
+            </div>
+
+            {/* Quick preset demos */}
+            <div className="space-y-1.5 pt-1">
+              <span className="text-[9px] uppercase tracking-wider font-extrabold text-slate-400 block">Espectro de Demostraciones Básicas</span>
+              <div className="grid grid-cols-2 gap-2 text-[10px]">
+                <button
+                  type="button"
+                  onClick={() => {
+                    stopCamera();
+                    triggerScan({ barcode: "7501055904251" });
+                  }}
+                  className="py-1 px-2 text-left rounded-lg bg-slate-50 border border-slate-100 hover:bg-slate-100 text-slate-650 truncate block font-medium"
+                >
+                  🥛 Demo 1: Yogur Griego (Saludable)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    stopCamera();
+                    triggerScan({ barcode: "75005829" });
+                  }}
+                  className="py-1 px-2 text-left rounded-lg bg-slate-50 border border-slate-100 hover:bg-slate-100 text-slate-650 truncate block font-medium"
+                >
+                  🥣 Demo 2: Cereal Irritante
+                </button>
               </div>
             </div>
 
           </div>
+        </div>
 
-          {/* Grid display outputs */}
-          <div className="md:col-span-2">
-            {analyzing ? (
-              <div className="bg-white border border-slate-100 rounded-2xl p-12 text-center space-y-4 shadow-sm min-h-[400px] flex flex-col justify-center items-center">
-                <Loader2 className="h-10 w-10 animate-spin text-indigo-500" />
-                <h3 className="text-sm font-bold text-slate-800">Decodificando la tabla nutricional...</h3>
-                <p className="text-xs text-slate-450 max-w-sm text-slate-400">Leyendo códigos de conservadores (E-numbers), aditivos endulzantes dañinos para la flora, jarabes fructosados y midiendo tu Score digestivo.</p>
-              </div>
+        {/* Right Side: Dynamic Decoded Results */}
+        <div className="md:col-span-7">
+          <AnimatePresence mode="wait">
+            {scanning ? (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="bg-white border border-slate-100 rounded-2xl p-10 shadow-sm text-center flex flex-col items-center justify-center space-y-4 min-h-[300px]"
+              >
+                <Loader2 className="h-8 w-8 text-emerald-500 animate-spin" />
+                <div className="space-y-1">
+                  <h4 className="text-sm font-bold text-slate-900">Analizando con Inteligencia de VitaDecodificador</h4>
+                  <p className="text-xs text-slate-404 text-slate-400 max-w-sm mx-auto">
+                    Escudriñando componentes químicos activos, nivel de edulcoración extrema y estabilidad osmótica estomacal...
+                  </p>
+                </div>
+              </motion.div>
+            ) : errorMsg ? (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="bg-white border border-rose-100 rounded-2xl p-8 shadow-sm text-center space-y-4 min-h-[300px] flex flex-col justify-center items-center"
+              >
+                <div className="p-3 bg-rose-50 rounded-full text-rose-600">
+                  <AlertCircle className="h-8 w-8" />
+                </div>
+                <div className="space-y-1">
+                  <h4 className="text-sm font-bold text-slate-900">Inconveniente de Análisis</h4>
+                  <p className="text-xs text-rose-800 max-w-sm leading-relaxed">{errorMsg}</p>
+                </div>
+                <button
+                  onClick={() => setErrorMsg("")}
+                  className="px-4 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-xs font-bold text-slate-700 shadow-sm"
+                >
+                  Reintentar Captura
+                </button>
+              </motion.div>
             ) : result ? (
-              <div className="space-y-6 animate-fade-in">
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0 }}
+                className="bg-white border border-slate-100 rounded-2xl p-6 shadow-sm space-y-5"
+              >
                 
-                {/* Score panel */}
-                <div className="bg-white border border-slate-100 p-6 rounded-2xl shadow-sm space-y-6">
-                  <div className="flex items-start justify-between border-b border-slate-50 pb-4">
-                    <div>
-                      <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Reporte de Producto</span>
-                      <h3 className="text-lg font-bold text-slate-800">{result.productName}</h3>
-                      <p className="text-xs text-slate-400 mt-0.5 font-mono">Código: {result.barcode}</p>
-                    </div>
+                {/* Result header banner */}
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 border-b border-slate-50 pb-4">
+                  <div>
+                    <span className="text-[9px] uppercase tracking-wider font-extrabold text-slate-400 block">Producto Detectado</span>
+                    <h3 className="text-lg font-bold text-slate-800">{result.productName}</h3>
+                  </div>
 
-                    <span className={`px-4 py-1 rounded-full text-xs font-bold uppercase ${getBadgeStyle(result.classification)}`}>
-                      Clasificación: {result.classification}
+                  <span className={`px-3 py-1 text-xs font-extrabold uppercase rounded-full border ${getClassificationColor(result.classification)}`}>
+                    {result.classification}
+                  </span>
+                </div>
+
+                {/* Score meters */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="bg-slate-50/50 p-3.5 rounded-xl border border-slate-100/50 flex items-center justify-between">
+                    <div>
+                      <span className="text-[9px] uppercase tracking-widest font-extrabold text-slate-400 block font-mono">Digestión Score</span>
+                      <span className="text-[10px] text-slate-500 block leading-tight">No irrita mucosa</span>
+                    </div>
+                    <span className={`text-2xl font-black font-mono ${getScoreColor(result.digestiveScore)}`}>
+                      {result.digestiveScore}
                     </span>
                   </div>
 
-                  {/* Dual Score charts */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                    <div className="space-y-2">
-                      <div className="flex justify-between items-baseline">
-                        <span className="text-xs font-bold text-slate-600">Digestive Score (Estómago)</span>
-                        <span className={`text-base font-extrabold ${
-                          result.digestiveScore >= 80 ? "text-emerald-500" :
-                          result.digestiveScore >= 50 ? "text-amber-500" : "text-rose-500"
-                        }`}>{result.digestiveScore} / 100</span>
-                      </div>
-                      <div className="bg-slate-100 h-2.5 rounded-full overflow-hidden">
-                        <div 
-                          className={`h-full rounded-full transition-all duration-500 ${
-                            result.digestiveScore >= 80 ? "bg-emerald-500" :
-                            result.digestiveScore >= 50 ? "bg-amber-500" : "bg-rose-500"
-                          }`}
-                          style={{ width: `${result.digestiveScore}%` }}
-                        />
-                      </div>
-                      <p className="text-[11px] text-slate-400">Score de irritación mucosa, azúcares rápidos fermentables y preservantes indigeribles.</p>
+                  <div className="bg-slate-50/50 p-3.5 rounded-xl border border-slate-100/50 flex items-center justify-between">
+                    <div>
+                      <span className="text-[9px] uppercase tracking-widest font-extrabold text-slate-400 block font-mono">Densidad Macronutrientes</span>
+                      <span className="text-[10px] text-slate-500 block leading-tight">Grasas & Aminoácidos</span>
                     </div>
-
-                    <div className="space-y-2">
-                      <div className="flex justify-between items-baseline">
-                        <span className="text-xs font-bold text-slate-600">Nutrition Score (Macros)</span>
-                        <span className={`text-base font-extrabold ${
-                          result.nutritionScore >= 80 ? "text-teal-500" :
-                          result.nutritionScore >= 50 ? "text-amber-500" : "text-rose-500"
-                        }`}>{result.nutritionScore} / 100</span>
-                      </div>
-                      <div className="bg-slate-100 h-2.5 rounded-full overflow-hidden">
-                        <div 
-                          className={`h-full rounded-full transition-all duration-500 ${
-                            result.nutritionScore >= 80 ? "bg-teal-500" :
-                            result.nutritionScore >= 50 ? "bg-amber-500" : "bg-rose-500"
-                          }`}
-                          style={{ width: `${result.nutritionScore}%` }}
-                        />
-                      </div>
-                      <p className="text-[11px] text-slate-400">Densidad proteica, aporte de grasas saturadas sanas e índice calórico de porción.</p>
-                    </div>
+                    <span className={`text-2xl font-black font-mono ${getScoreColor(result.nutritionScore)}`}>
+                      {result.nutritionScore}
+                    </span>
                   </div>
-
-                  {/* Summary analysis card */}
-                  <div className="p-4 rounded-xl bg-slate-50 border border-slate-100 space-y-2">
-                    <h4 className="text-xs font-bold text-slate-800">Por qué obtuvo este Score:</h4>
-                    <p className="text-xs text-slate-600 leading-normal">{result.analysisSummary}</p>
-                  </div>
-
                 </div>
 
-                {/* Composition detailed panel */}
-                <div className="bg-white border border-slate-100 p-6 rounded-2xl shadow-sm space-y-4">
-                  <h3 className="text-sm font-bold text-slate-800">Componentes de Alerta Digestiva</h3>
+                {/* Detailed Parameters */}
+                <div className="space-y-2.5">
+                  <h4 className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest border-b border-slate-50 pb-1">Análisis Detallado de Ingredientes</h4>
                   
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="p-3 bg-slate-50 rounded-xl">
-                      <span className="text-[10px] text-slate-400 font-bold uppercase">Azúcares Añadidos</span>
-                      <p className="text-xs font-bold text-slate-700 mt-0.5">{result.sugars}</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                    
+                    <div className="flex items-center justify-between p-2 rounded-xl bg-slate-50/30 border border-slate-50">
+                      <span className="font-medium text-slate-500">Azúcares Libres</span>
+                      <span className="font-bold text-slate-800 text-[11px]">{result.sugars}</span>
                     </div>
-                    <div className="p-3 bg-slate-50 rounded-xl">
-                      <span className="text-[10px] text-slate-400 font-bold uppercase">Grasas Saturadas</span>
-                      <p className="text-xs font-bold text-slate-700 mt-0.5">{result.fats}</p>
-                    </div>
-                    <div className="p-3 bg-slate-50 rounded-xl">
-                      <span className="text-[10px] text-slate-400 font-bold uppercase">Sodio / Conservantes</span>
-                      <p className="text-xs font-bold text-slate-700 mt-0.5">{result.sodium}</p>
-                    </div>
-                    <div className="p-3 bg-slate-50 rounded-xl">
-                      <span className="text-[10px] text-slate-400 font-bold uppercase">Conservadores / Colorantes</span>
-                      <p className="text-xs font-bold text-slate-700 mt-0.5">{result.preservatives}</p>
-                    </div>
-                  </div>
 
+                    <div className="flex items-center justify-between p-2 rounded-xl bg-slate-50/30 border border-slate-50">
+                      <span className="font-medium text-slate-500">Grasas Saturadas</span>
+                      <span className="font-bold text-slate-800 text-[11px]">{result.fats}</span>
+                    </div>
+
+                    <div className="flex items-center justify-between p-2 rounded-xl bg-slate-50/30 border border-slate-50">
+                      <span className="font-medium text-slate-500">Sodio Contenido</span>
+                      <span className="font-bold text-slate-800 text-[11px]">{result.sodium}</span>
+                    </div>
+
+                    <div className="flex items-center justify-between p-2 rounded-xl bg-slate-50/30 border border-slate-50">
+                      <span className="font-medium text-slate-500">Nivel Ultraprocesado</span>
+                      <span className="font-bold text-slate-800 text-[11px]">{result.ultraprocessed || "Medio"}</span>
+                    </div>
+
+                    <div className="flex items-center justify-between p-2 rounded-xl bg-slate-50/30 border border-slate-50">
+                      <span className="font-medium text-slate-500">Preservativos</span>
+                      <span className="font-bold text-slate-800 text-[11px]">{result.preservatives}</span>
+                    </div>
+
+                    <div className="flex items-center justify-between p-2 rounded-xl bg-slate-50/30 border border-slate-50">
+                      <span className="font-medium text-slate-500">Colorantes Síntéticos</span>
+                      <span className="font-bold text-slate-800 text-[11px]">{result.colorants}</span>
+                    </div>
+
+                  </div>
                 </div>
 
-                {/* Alternatives healthy suggestions */}
-                <div className="bg-white border border-slate-100 p-6 rounded-2xl shadow-sm space-y-3">
-                  <h3 className="text-sm font-bold text-slate-800 flex items-center gap-1.5">
-                    <CheckCircle2 className="text-emerald-500 h-5 w-5" />
-                    <span>Alternativas Más Digestivas</span>
-                  </h3>
+                {/* Clinical Interpretation */}
+                <div className="bg-emerald-500/5 p-4 rounded-xl border border-emerald-100/50 space-y-1">
+                  <span className="text-[9px] font-bold text-emerald-800 uppercase tracking-widest block font-mono flex items-center gap-1">
+                    <Sparkles className="h-3 w-3 text-amber-500 animate-pulse" />
+                    <span>Interpretación Digestiva IA</span>
+                  </span>
+                  <p className="text-xs text-slate-700 leading-relaxed font-medium">
+                    {result.analysisSummary}
+                  </p>
+                </div>
+
+                {/* Healthy Safer Alternatives */}
+                <div className="space-y-2.5">
+                  <h4 className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest border-b border-slate-50 pb-1">Alternativas más Amigables</h4>
+                  
                   <div className="space-y-2">
-                    {result.alternatives.map((alt: string, index: number) => (
-                      <div key={index} className="p-3 bg-emerald-50 text-emerald-900 rounded-xl flex items-center gap-2">
-                        <Check className="h-4 w-4 text-emerald-600 shrink-0" />
-                        <span className="text-xs font-medium">{alt}</span>
+                    {result.alternatives?.map((alt, altIndex) => (
+                      <div key={altIndex} className="bg-slate-50/30 border border-emerald-100 p-3 rounded-xl flex items-start space-x-2.5">
+                        <ShieldCheck className="h-4 w-4 text-emerald-600 mt-0.5 shrink-0" />
+                        <p className="text-xs text-slate-700 font-medium">
+                          {alt}
+                        </p>
                       </div>
                     ))}
                   </div>
                 </div>
 
-              </div>
+                {/* Clear current results to look for more */}
+                <div className="pt-2">
+                  <button
+                    onClick={() => {
+                      setResult(null);
+                      setSelectedImage(null);
+                    }}
+                    className="w-full rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2 text-xs transition flex items-center justify-center gap-1.5"
+                  >
+                    <RotateCcw className="h-3.5 w-3.5" />
+                    <span>Analizar un Nuevo Producto</span>
+                  </button>
+                </div>
+
+              </motion.div>
             ) : (
-              <div className="bg-white border border-dashed border-slate-200 rounded-2xl p-12 text-center text-slate-400 shadow-sm min-h-[400px] flex flex-col justify-center items-center">
-                <Barcode className="h-12 w-12 text-slate-350 mx-auto animate-pulse" />
-                <h3 className="text-sm font-bold text-slate-700 mt-3">Listo para decodificar</h3>
-                <p className="text-xs max-w-sm mx-auto mt-1">Sube la foto del reverso del empaque o teclea el número del código de barras. Nuestro especialista contrastará conservadores contra tu intestino irritable en segundos.</p>
+              <div className="bg-white border border-slate-100 border-dashed rounded-2xl p-12 text-center flex flex-col items-center justify-center space-y-4 min-h-[300px]">
+                <FileText className="h-10 w-10 text-slate-350" />
+                <div className="space-y-1">
+                  <h4 className="text-sm font-bold text-slate-700">Esperando Captura</h4>
+                  <p className="text-xs text-slate-400 max-w-sm">
+                    Toma una captura o fotografía en tiempo real de la tabla de ingredientes de tu alimento o carga la imagen para analizarla.
+                  </p>
+                </div>
               </div>
             )}
-          </div>
-
+          </AnimatePresence>
         </div>
-      )}
+
+      </div>
 
     </div>
   );

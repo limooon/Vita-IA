@@ -9,7 +9,7 @@ export interface UserProfile {
   uid: string;
   name?: string;
   email: string;
-  subscriptionStatus: "free" | "premium";
+  subscriptionStatus: "free" | "premium" | "vita_ia_max";
   createdAt: string;
   age?: number;
   weight?: number;
@@ -220,6 +220,7 @@ export interface ShoppingItem {
   category: "Proteínas" | "Verduras" | "Frutas" | "Cereales" | "Bebidas" | string;
   name: string;
   checked: boolean;
+  price?: number;
 }
 
 export interface ShoppingList {
@@ -248,5 +249,16 @@ export interface UserProgress {
   mealsLoggedCount: number;
   recipesLoggedCount: number;
   photosAnalyzedCount: number;
+}
+
+export interface UserClaim {
+  id?: string;
+  userId: string;
+  title: string;
+  category: "servicio" | "app_funcionamiento" | "pagos" | "nutricion" | "otro" | string;
+  description: string;
+  status: "Pendiente" | "En Revisión" | "Resuelto" | string;
+  createdAt: string;
+  response?: string;
 }
 

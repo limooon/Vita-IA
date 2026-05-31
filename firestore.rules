@@ -184,5 +184,10 @@ service cloud.firestore {
     match /user_progress/{userId} {
       allow read, write: if isSignedIn() && userId == request.auth.uid;
     }
+
+    // 13. User Claims & Complaints
+    match /users/{userId}/claims/{claimId} {
+      allow list, get, create, update, delete: if isOwner(userId);
+    }
   }
 }

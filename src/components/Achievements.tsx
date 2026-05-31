@@ -207,13 +207,9 @@ export default function Achievements({
                 <p className="text-xs text-orange-50 font-medium opacity-80 mt-1.5">Has mantenido tus defensas de colon activas cuidando irritantes.</p>
               </div>
 
-              <button
-                onClick={handleClaimStreakPoint}
-                className="w-full py-2.5 bg-white text-rose-600 hover:bg-slate-50 rounded-xl text-xs font-bold transition shadow-sm"
-                id="claim-streak-btn"
-              >
-                ¡Reclamar Racha del Día!
-              </button>
+              <div className="rounded-xl bg-white/10 p-2.5 text-[11px] text-amber-100 text-center font-medium leading-tight">
+                🔒 Tu racha se incrementa automáticamente al iniciar sesión cada día de forma honesta. ¡Sigue así!
+              </div>
             </div>
 
             {/* Quick stats logs */}

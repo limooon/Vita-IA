@@ -16,6 +16,16 @@ export default function NutritionChat({
   onSaveChatMessage,
   onViewChange
 }: NutritionChatProps) {
+  const isPremium = user.subscriptionStatus === "premium";
+  const [freeRequestCount, setFreeRequestCount] = useState<number>(() => {
+    try {
+      const stored = localStorage.getItem(`vitacoach_free_reqs_${user.uid}`);
+      return stored ? parseInt(stored, 10) : 0;
+    } catch (_) {
+      return 0;
+    }
+  });
+
   const [messages, setMessages] = useState<ChatMessage[]>(
     initialChatHistory.length > 0 
       ? initialChatHistory 
@@ -38,6 +48,18 @@ export default function NutritionChat({
   const handleSendMessage = async (customText?: string) => {
     const textToSend = customText || inputValue;
     if (!textToSend.trim() || sending) return;
+
+    if (!isPremium && freeRequestCount >= 1) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "model",
+          content: "❌ **Has alcanzado tu límite diario de 1 consulta gratuita** de VitaCoach hoy.\n\nAdquiere el plan **VitaAI Plus** para desbloquear consultas ilimitadas 24/7 y una experiencia completamente libre de anuncios publicitarios.",
+          createdAt: new Date().toISOString()
+        }
+      ]);
+      return;
+    }
 
     const userMessage: ChatMessage = {
       role: "user",
@@ -72,6 +94,14 @@ export default function NutritionChat({
       
       // Save history inside firestore
       await onSaveChatMessage(updatedHistory);
+
+      if (!isPremium) {
+        const nextCount = freeRequestCount + 1;
+        setFreeRequestCount(nextCount);
+        try {
+          localStorage.setItem(`vitacoach_free_reqs_${user.uid}`, nextCount.toString());
+        } catch (_) {}
+      }
 
     } catch (err) {
       console.error(err);
@@ -225,6 +255,41 @@ export default function NutritionChat({
         </div>
       )}
 
+      {/* Ad Sponsor block for Free plan */}
+      {!isPremium && (
+        <div className="bg-amber-500/5 px-4 py-2 border-t border-slate-150 flex items-center justify-between text-[11px] text-amber-900 leading-snug">
+          <div className="flex items-center space-x-1.5 truncate">
+            <span className="bg-amber-100 text-amber-800 text-[8px] font-extrabold px-1.5 py-0.5 rounded uppercase tracking-wider block font-mono">📢 SPONSOR</span>
+            <span className="truncate font-medium">¿Reflujo acido? Prueba Té de Manzanilla Bio-Zen. -20% con cupón VITAPLUS.</span>
+          </div>
+          <button 
+            type="button"
+            onClick={() => onViewChange("premium")}
+            className="text-[10px] font-extrabold text-teal-850 hover:underline shrink-0 flex items-center gap-0.5"
+          >
+            Quitar anuncios ⚡
+          </button>
+        </div>
+      )}
+
+      {/* Daily limit lock notification */}
+      {!isPremium && freeRequestCount >= 1 && (
+        <div className="mx-3 mt-2 p-3 bg-red-50 border border-red-100 rounded-xl text-center space-y-2 animate-fade-in shadow-sm">
+          <p className="text-xs text-red-950 font-semibold flex items-center justify-center gap-1.5">
+            <span>🔒</span>
+            <span>Has consumido tu única consulta diaria de VitaCoach gratuita.</span>
+          </p>
+          <button
+            type="button"
+            onClick={() => onViewChange("premium")}
+            className="inline-flex items-center gap-1.5 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white text-[11px] font-extrabold px-4 py-1.5 rounded-lg shadow-sm transition-all"
+          >
+            <Sparkles className="h-3 w-3 text-amber-300 animate-pulse" />
+            <span>Consultas Ilimitadas sin Anuncios</span>
+          </button>
+        </div>
+      )}
+
       {/* Chat bottom control bar */}
       <div className="p-3 border-t border-slate-150 bg-white">
         <form 
@@ -240,14 +305,20 @@ export default function NutritionChat({
             type="text"
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
-            disabled={sending}
-            placeholder={sending ? "Procesando aclaratoria..." : "Pregúntale a VitaCoach (ej. ¿Qué snack saludable me recomiendas para la tarde?)"}
-            className="flex-1 rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:outline-none focus:border-emerald-500"
+            disabled={sending || (!isPremium && freeRequestCount >= 1)}
+            placeholder={
+              sending 
+                ? "Procesando aclaratoria..." 
+                : (!isPremium && freeRequestCount >= 1) 
+                  ? "Chat bloqueado (Agotaste tu límite del plan free)" 
+                  : "Pregúntale a VitaCoach (ej. ¿Qué snack saludable me recomiendas para la tarde?)"
+            }
+            className="flex-1 rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:outline-none focus:border-emerald-500 disabled:bg-slate-50 disabled:text-slate-400"
           />
           <button
             id="chat-send-btn"
             type="submit"
-            disabled={sending || !inputValue.trim()}
+            disabled={sending || !inputValue.trim() || (!isPremium && freeRequestCount >= 1)}
             className="rounded-xl bg-emerald-500 p-2.5 text-white hover:bg-emerald-600 shadow-sm transition-all disabled:opacity-40"
           >
             <Send className="h-4.5 w-4.5" />

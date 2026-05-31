@@ -12,7 +12,7 @@ export default function LegalCenter() {
         </div>
         <h2 className="text-2xl font-bold text-slate-900">Centro Legal y de Cumplimiento</h2>
         <p className="text-slate-500 text-sm max-w-lg mx-auto">
-          En VitaAI nos tomamos muy en serio tu privacidad, la responsabilidad clínica y el uso ético y transparente de la Inteligencia Artificial.
+          En Vita IA nos tomamos muy en serio tu privacidad, la responsabilidad clínica y el uso ético y transparente de la Inteligencia Artificial.
         </p>
       </div>
 
@@ -22,7 +22,7 @@ export default function LegalCenter() {
         <div className="space-y-1">
           <h4 className="text-sm font-bold text-rose-900">Mensaje Obligatorio y de Descargo Médico</h4>
           <p className="text-xs text-rose-800 leading-relaxed font-semibold">
-            "VitaAI proporciona orientación general de bienestar y nutrición. No sustituye el diagnóstico ni tratamiento de profesionales de la salud."
+            "Vita IA proporciona orientación general de bienestar y nutrición. No sustituye el diagnóstico ni tratamiento de profesionales de la salud."
           </p>
           <p className="text-[11px] text-rose-700 leading-relaxed mt-1">
             Cualquier sugerencia alimentaria, receta, rutina o análisis clínico de imagen proporcionada por el sistema automatizado asistido por Gemini AI es estrictamente educativo de carácter informativo. No tomes decisiones clínicas críticas sin consultar a un médico especialista calificado.
@@ -39,7 +39,7 @@ export default function LegalCenter() {
             <span>Descargo de Responsabilidad Médica</span>
           </h3>
           <p className="text-xs text-slate-500 leading-relaxed">
-            VitaAI es un software de optimización y bienestar de hábitos alimentarios diarios para personas que experimentan colitis o acidez leve. Esta aplicación no posee habilitación como dispositivo médico o herramienta de diagnóstico.
+            Vita IA es un software de optimización y bienestar de hábitos alimentarios diarios para personas que experimentan colitis o acidez leve. Esta aplicación no posee habilitación como dispositivo médico o herramienta de diagnóstico.
           </p>
           <ul className="text-[11px] text-slate-400 space-y-1.5 pl-4 list-disc">
             <li>La interpretación de imágenes es netamente estimativa y probabilística.</li>
@@ -55,7 +55,7 @@ export default function LegalCenter() {
             <span>Términos y Condiciones de Uso</span>
           </h3>
           <p className="text-xs text-slate-500 leading-relaxed">
-            Al acceder a VitaAI, aceptas el uso responsable de nuestros chatbots e intercomunicadores interactivos. Queda prohibida la automatización externa o el scraping de las funciones de análisis visual por lote.
+            Al acceder a Vita IA, aceptas el uso responsable de nuestros chatbots e intercomunicadores interactivos. Queda prohibida la automatización externa o el scraping de las funciones de análisis visual por lote.
           </p>
           <ul className="text-[11px] text-slate-400 space-y-1.5 pl-4 list-disc">
             <li>El usuario es único responsable de los alimentos ingeridos en su día a día.</li>
@@ -100,7 +100,7 @@ export default function LegalCenter() {
 
       {/* Certification sign warning */}
       <div className="rounded-xl bg-slate-50 p-4 border border-slate-100 text-[11px] text-slate-400 leading-relaxed text-center">
-        © 2026 VitaAI Inc. Todos los derechos reservados. El cumplimiento normativo de este software se apega a las pautas éticas globales de salud digital preventiva.
+        © 2026 Vita IA Inc. Todos los derechos reservados. El cumplimiento normativo de este software se apega a las pautas éticas globales de salud digital preventiva.
       </div>
 
     </div>

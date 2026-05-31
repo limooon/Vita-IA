@@ -18,17 +18,16 @@ import AuthPanel from "./components/AuthPanel";
 // Premium Modules
 import DigestiveInsights from "./components/DigestiveInsights";
 import SupermarketScanner from "./components/SupermarketScanner";
+import VitaMind from "./components/VitaMind";
 import NutritionCoach from "./components/NutritionCoach";
-import ShoppingPlanner from "./components/ShoppingPlanner";
 import FamilyProfiles from "./components/FamilyProfiles";
 import Achievements from "./components/Achievements";
 import VitaPerformance from "./components/VitaPerformance";
 import ClinicalProfile from "./components/ClinicalProfile";
 import VitaVacation from "./components/VitaVacation";
-import SocialMeals from "./components/SocialMeals";
 import VitaTravel from "./components/VitaTravel";
-import SmartComparator from "./components/SmartComparator";
 import LegalCenter from "./components/LegalCenter";
+import VitaIaMax from "./components/VitaIaMax";
 
 import { Bell, Check, Sparkles, X, Heart } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
@@ -39,6 +38,7 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [currentView, setCurrentView] = useState<string>("dashboard");
+  const isDarkMode = false;
 
   // Core collections states
   const [analyses, setAnalyses] = useState<FoodAnalysis[]>([]);
@@ -66,7 +66,7 @@ export default function App() {
             setCurrentUser({
               uid: firebaseUser.uid,
               email: firebaseUser.email || "",
-              name: data.name || firebaseUser.displayName || "Usuario VitaAI",
+              name: data.name || firebaseUser.displayName || "Usuario Vita IA",
               subscriptionStatus: data.subscriptionStatus || "free",
               age: data.age,
               weight: data.weight,
@@ -79,7 +79,7 @@ export default function App() {
             const newProfile: UserProfile = {
               uid: firebaseUser.uid,
               email: firebaseUser.email || "",
-              name: firebaseUser.displayName || "Usuario VitaAI",
+              name: firebaseUser.displayName || "Usuario Vita IA",
               subscriptionStatus: "free",
               createdAt: new Date().toISOString()
             };
@@ -92,7 +92,7 @@ export default function App() {
           setCurrentUser({
             uid: firebaseUser.uid,
             email: firebaseUser.email || "",
-            name: firebaseUser.displayName || "Usuario VitaAI",
+            name: firebaseUser.displayName || "Usuario Vita IA",
             subscriptionStatus: "free",
             createdAt: new Date().toISOString()
           });
@@ -163,7 +163,7 @@ export default function App() {
             {
               id: "notif_welcome",
               userId: currentUser.uid,
-              title: "¡Bienvenido a VitaAI! 💚",
+              title: "¡Bienvenido a Vita IA! 💚",
               message: "Tu cuenta ha sido creada con éxito. Visita VitaScan para evaluar tus porciones de comida.",
               read: false,
               createdAt: new Date().toISOString()
@@ -201,7 +201,7 @@ export default function App() {
   };
 
   // Profile physical parameters update trigger
-  const handleUpdateMetrics = async (metrics: { age: number; weight: number; height: number; objective: string }) => {
+  const handleUpdateMetrics = async (metrics: { name?: string; age: number; weight: number; height: number; objective: string }) => {
     if (!currentUser) return;
     try {
       const docRef = doc(db, "users", currentUser.uid);
@@ -352,13 +352,13 @@ export default function App() {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-50 flex-col space-y-4">
         <div className="h-10 w-10 animate-spin rounded-full border-4 border-emerald-100 border-t-emerald-500" />
-        <p className="text-xs font-mono text-slate-400">VitaAI está encendiendo el motor inteligente...</p>
+        <p className="text-xs font-mono text-slate-400">Vita IA está encendiendo el motor inteligente...</p>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-slate-50/50 font-sans text-slate-800 flex flex-col justify-between">
+    <div className="min-h-screen bg-slate-50/50 dark:bg-slate-950 font-sans text-slate-800 dark:text-slate-100 flex flex-col justify-between transition-colors duration-300">
       
       {/* Top Banner Global layout */}
       <Header
@@ -373,6 +373,8 @@ export default function App() {
           setShowNotificationsModal(true);
           handleMarkNotificationsAsRead();
         }}
+        isDarkMode={isDarkMode}
+        onToggleTheme={() => {}}
       />
 
       {/* Main viewport area */}
@@ -395,6 +397,7 @@ export default function App() {
                 onUpdateMetrics={handleUpdateMetrics}
                 scansTodayCount={scansTodayCount}
                 maxFreeScans={MAX_FREE_SCANS}
+                isDarkMode={isDarkMode}
               />
             )}
 
@@ -502,7 +505,14 @@ export default function App() {
               />
             )}
 
-            {currentView === "supermarket-scanner" && (
+            {currentView === "vitamind" && currentUser && (
+              <VitaMind
+                user={currentUser}
+                onViewChange={setCurrentView}
+              />
+            )}
+
+            {currentView === "supermarket-scanner" && currentUser && (
               <SupermarketScanner
                 user={currentUser}
                 onViewChange={setCurrentView}
@@ -513,13 +523,6 @@ export default function App() {
               <NutritionCoach
                 user={currentUser}
                 analyses={analyses}
-                onViewChange={setCurrentView}
-              />
-            )}
-
-            {currentView === "shopping-planner" && (
-              <ShoppingPlanner
-                user={currentUser}
                 onViewChange={setCurrentView}
               />
             )}
@@ -550,18 +553,14 @@ export default function App() {
               <ClinicalProfile
                 user={currentUser}
                 onViewChange={setCurrentView}
+                onUpdateUserProps={handleUpdateMetrics}
+                isDarkMode={isDarkMode}
+                onToggleDarkMode={() => {}}
               />
             )}
 
             {currentView === "vacations" && currentUser && (
               <VitaVacation
-                user={currentUser}
-                onViewChange={setCurrentView}
-              />
-            )}
-
-            {currentView === "social-meals" && currentUser && (
-              <SocialMeals
                 user={currentUser}
                 onViewChange={setCurrentView}
               />
@@ -574,10 +573,11 @@ export default function App() {
               />
             )}
 
-            {currentView === "smart-comparator" && currentUser && (
-              <SmartComparator
+            {currentView === "vita-ia-max" && currentUser && (
+              <VitaIaMax
                 user={currentUser}
                 onViewChange={setCurrentView}
+                analyses={analyses}
               />
             )}
 
@@ -587,7 +587,7 @@ export default function App() {
               />
             )}
 
-            {currentView === "help" && <HelpAndFaq />}
+            {currentView === "help" && <HelpAndFaq user={currentUser || undefined} />}
           </div>
 
         )}
@@ -595,13 +595,13 @@ export default function App() {
       </main>
 
       {/* Persistent Footer and diagnostic disclaimers */}
-      <footer className="bg-white border-t border-slate-100 py-6 mt-12 w-full text-center text-xs text-slate-400">
+      <footer className="bg-white dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800 py-6 mt-12 w-full text-center text-xs text-slate-400">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 space-y-2">
-          <p className="font-semibold text-slate-550 leading-relaxed text-slate-550 text-slate-500">
-            © 2026 <strong>VitaAI Tech Solutions Inc.</strong> • Desarrollado con Inteligencia Artificial Generadora • <button onClick={() => setCurrentView("legal-center")} className="text-teal-600 hover:underline font-bold">Centro Legal</button>
+          <p className="font-semibold text-slate-500 dark:text-slate-400 leading-relaxed">
+            © 2026 <strong>Vita IA Tech Solutions Inc.</strong> • Desarrollado con Inteligencia Artificial Generadora • <button onClick={() => setCurrentView("legal-center")} className="text-teal-600 dark:text-teal-400 hover:underline font-bold">Centro Legal</button>
           </p>
           <p className="max-w-xl mx-auto text-[10px] text-slate-450 leading-relaxed">
-            *Advertencia Legal: Todo el contenido nutricional e hipótesis alimenticias emitidas son meramente explicativas e informativas. VitaAI no constituye una prescripción médica o terapéutica; consulta siempre a tu médico o nutricionista de cabecera.
+            *Advertencia Legal: Todo el contenido nutricional e hipótesis alimenticias emitidas son meramente explicativas e informativas. Vita IA no constituye una prescripción médica o terapéutica; consulta siempre a tu médico o nutricionista de cabecera.
           </p>
         </div>
       </footer>

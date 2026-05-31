@@ -413,15 +413,27 @@ Basado en tus registros alimenticios y síntomas ingresados:
                   <p className="text-xs text-rose-700 font-medium leading-relaxed">{errorMsg}</p>
                 </div>
               ) : aiReport ? (
-                <div className="space-y-6 animate-fade-in">
+                <div className="space-y-6 animate-fade-in text-slate-700">
                   
+                  {/* Print and share section */}
+                  <div className="flex justify-between items-center bg-slate-50 border border-slate-100 p-3 rounded-xl print:hidden">
+                    <span className="text-xs font-medium text-slate-500">¿Deseas guardar esto para tu médico?</span>
+                    <button
+                      type="button"
+                      onClick={() => window.print()}
+                      className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 shadow-sm hover:bg-slate-50 shrink-0 flex items-center gap-1"
+                    >
+                      <span>🖨️ Imprimir Diagnóstico</span>
+                    </button>
+                  </div>
+
                   {/* Correlation levels highlights */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     {aiCorrelations.map((c, index) => (
                       <div key={index} className="p-4 rounded-xl border border-slate-100 bg-slate-50/50 flex flex-col justify-between">
                         <div>
                           <div className="flex items-center justify-between mb-2">
-                            <span className="text-[10px] uppercase tracking-wider font-bold text-slate-450 text-slate-400">Factor Causa Real</span>
+                            <span className="text-[10px] uppercase tracking-wider font-bold text-slate-400">Factor Causa Real</span>
                             <span className={`rounded-full px-2 py-0.5 text-[9px] font-extrabold uppercase ${
                               c.correlationLevel === "Alta" ? "bg-rose-50 text-rose-700 border border-rose-100" : "bg-amber-50 text-amber-700 border border-amber-100"
                             }`}>
@@ -469,10 +481,83 @@ Basado en tus registros alimenticios y síntomas ingresados:
                     })}
                   </div>
 
+                  {/* Recommended Recipes for associated symptoms */}
+                  <div className="space-y-3.5 mt-4 print:mt-10">
+                    <h4 className="text-xs font-extrabold text-slate-400 uppercase tracking-widest flex items-center gap-1.5 border-b border-slate-50 pb-1.5">
+                      <Sparkles className="h-4 w-4 text-emerald-500 animate-pulse" />
+                      <span>Recetas Recomendadas para aliviar tus Síntomas 🥣</span>
+                    </h4>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      {((logs[0]?.symptom || symptom) === "reflujo" || (logs[0]?.symptom || symptom) === "dolor_abdominal" ? [
+                        {
+                          title: "Avena Tibia Hidratante con Puré de Camote y Anís",
+                          time: "15 min",
+                          digestiveRule: "Muy baja acidez | Recubre la mucosa gástrica herida por jugos ácidos",
+                          ingredients: ["1/2 taza de avena sin gluten", "1 taza de agua tibia", "1/2 camote cocido machacado", "Pizca de anís estrella molido"],
+                          instructions: "Cocina la avena en agua tibia. Agrega el puré de camote templado y espolvorea pizca de anís. Sirve a temperatura ambiente de inmediato."
+                        },
+                        {
+                          title: "Caldo Dorado de Pollo Claro y Calabaza",
+                          time: "25 min",
+                          digestiveRule: "Anti-reflujo | Aporte directo de colágeno tierno reparador",
+                          ingredients: ["1 pechuga de pollo magra sin piel", "1 calabacita italiana fileteada", "1/2 taza de arroz blanco lavado", "Pizca de sal marina"],
+                          instructions: "Sirve el pollo con abundante agua y calabacitas. Hierve a fuego lento 20 minutos hasta ablandar. Ingiere el caldo colado tibio para asentar."
+                        }
+                      ] : (logs[0]?.symptom || symptom) === "inflamacion" || (logs[0]?.symptom || symptom) === "gases" ? [
+                        {
+                          title: "Crema de Calabaza y Zanahorias Sazonadas con Hinojo",
+                          time: "20 min",
+                          digestiveRule: "Bajo FODMAP | Evita la fermentación bacteriana y distensión del intestino delgado",
+                          ingredients: ["1 taza de calabaza de castilla", "1 zanahoria hervida", "Pizca de hinojo machacado", "Cucharada de aceite de oliva crudo"],
+                          instructions: "Hierve las zanahorias y la calabaza. Licúa agregando su propia agua hasta lograr una textura cremosa. Adiciona hinojo desinflamatorio para calmar gases."
+                        },
+                        {
+                          title: "Infusión de Manzanilla con Papaya Picada",
+                          time: "10 min",
+                          digestiveRule: "Enzimática | Desinflama las microvellosidades intestinales",
+                          ingredients: ["1 ramita de manzanilla fresca", "1 taza de papaya madura picada", "Pizca ligera de kéfir vegetal de coco"],
+                          instructions: "Prepara la taza de manzanilla tibia. Acompaña comiendo despacio los cubos de papaya dulce con el kéfir para sembrar bacterias buenas."
+                        }
+                      ] : [
+                        {
+                          title: "Consomé con Arroz Blanco y Compota de Manzana",
+                          time: "20 min",
+                          digestiveRule: "Astringente suave | Repone agua y electrolitos de transporte gástrico",
+                          ingredients: ["1 taza de arroz blanco cocido", "1 taza de agua de manzana hervida", "1 manzana pelada y cocida", "Consomé de pavo desgrasado"],
+                          instructions: "Licúa la manzana hervida para armar la compota. Consume el arroz blanco acompañado de caldos limpios tibios sin fibras difíciles de procesar."
+                        },
+                        {
+                          title: "Papaya fresca con Linaza Dorada Remojada",
+                          time: "5 min",
+                          digestiveRule: "Lubricante del Peristaltismo | Favorece tránsito dócil",
+                          ingredients: ["1 taza de papaya en cubos", "1 cucharadita de semillas de linaza dorada remojada toda la noche", "Infusión de toronjil"],
+                          instructions: "Mezcla los cubitas de papaya madura tierna con el gel mucilaginoso de la linaza dorada remojada. Mastica minuciosamente para calmar estreñimiento."
+                        }
+                      ]).map((rec, rIdx) => (
+                        <div key={rIdx} className="p-4 rounded-xl border border-dashed border-emerald-200 bg-white space-y-2 text-slate-700 shadow-sm">
+                          <div className="flex justify-between items-center">
+                            <span className="text-[9px] uppercase tracking-wider font-extrabold text-slate-450 text-slate-400">{rec.time} de preparación</span>
+                            <span className="text-[10px] text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-full font-bold">Digestivo</span>
+                          </div>
+                          <h5 className="text-xs font-bold text-slate-800">{rec.title}</h5>
+                          <p className="text-[10px] text-emerald-700 font-semibold italic">{rec.digestiveRule}</p>
+                          
+                          <div className="text-[11px] leading-snug space-y-1 mt-1.5 border-t border-slate-50 pt-2 text-slate-600">
+                            <strong>Ingredientes:</strong> {rec.ingredients.join(", ")}
+                            <p className="text-[10px] italic mt-1 leading-normal">
+                              📌 <strong>Instrucciones:</strong> {rec.instructions}
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
                   <div className="bg-amber-50/50 border border-amber-100 rounded-xl p-3 flex items-start space-x-2">
                     <Info className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" />
                     <p className="text-[11px] text-amber-800 leading-snug">
-                      <strong>Recomendación Clínica</strong>: Al aislar estos irritantes correlacionados (ej. evitar café de tarde, condimentos con vinagre), tu tejido gastrointestinal comenzará a recuperarse en 3 a 7 días. Consúltalo con tu especialista.
+                      <strong>Recomendación Clínica</strong>: Al aislar estos irritantes correlacionados (ej. evitar café de tarde, condimentos con vinagre), tu tejido gastrointestinal comenzará a recuperarse en 3 a 7 días. Consúltalo con tu especialista de confianza.
                     </p>
                   </div>
                 </div>

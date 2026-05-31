@@ -259,6 +259,149 @@ app.post("/api/chat", async (req, res) => {
   }
 });
 
+// 3.5. VitaMind Psychological & Zen Decompression API
+app.post("/api/mind-zen", async (req, res) => {
+  const { action, thought, currentFeeling } = req.body;
+
+  if (!aiClient) {
+    // Return high quality diagnostic mock fallbacks if Gemini API key isn't provided.
+    if (action === "cbt_reframe") {
+      return res.json({
+        success: true,
+        mock: true,
+        reframed: `Sé que tengo muchas pendientes hoy, pero las iré resolviendo paso a paso. He superado días complejos antes, y mi valor como persona no depende de terminar todo perfectamente hoy.`,
+        clinical_commentary: "Este pensamiento contiene distorsiones de 'catastrofización' y 'adivinación del futuro'. El cuerpo interpreta este estrés mental como una señal de peligro real, deteniendo la irrigación sanguínea del estómago para enviarla a los músculos, lo que suele exacerbar el reflujo tensional y el espasmo digestivo.",
+        breathing_technique: "Respiración de Resonancia (Inhala 5s, Exhala 5s) para calmar el nervio vago."
+      });
+    } else {
+      return res.json({
+        success: true,
+        mock: true,
+        recommendations: [
+          "Suelta voluntariamente los hombros y destraba la mandíbula; la tensión gástrica suele reflejarse ahí.",
+          "Toma una taza de infusión tibia de manzanilla o toronjil sin prisas para calentar el abdomen.",
+          "Sal a caminar 5 minutos a paso lento, enfocándote únicamente en el contacto de la planta del pie con el suelo."
+        ],
+        breathing_pattern: "Método 4-7-8 (Inhala 4s, Retén 7s, Exhala largo 8s)",
+        mantra: "Suelto la expectativa del control de lo incierto; este momento es suficiente.",
+        psychological_insight: "Cuando percibes una amenaza emocional, tu amígdala cerebral activa el sistema simpático. Esto disminuye la secreción de moco protector de la barrera estomacal, acelerando el tránsito intestinal o cerrando el píloro, lo que causa acidez."
+      });
+    }
+  }
+
+  try {
+    if (action === "cbt_reframe") {
+      const promptText = `
+        Eres un psicoterapeuta cognitivo-conductual estrella y experto en mindfulness científico de la plataforma VitaMind.
+        El usuario está experimentando un espiral de pensamientos disfuncionales u origen de estrés agudo que le está afectando mentalmente y somatizando tensionalmente en la salud.
+        Su pensamiento negativo literal es: "${thought || "Tengo demasiado estrés y no creo poder salir adelante."}"
+        
+        Realiza una reestructuración cognitiva clínica para:
+        1. Identificar distorsiones (catastrofismo, blanco o negro, lectura de mente).
+        2. Formular un pensamiento sumamente realista, adaptativo, racional y autocompasivo (reframed).
+        3. Comentar brevemente cómo el estrés y este tipo de pensamientos tensionales bloquean el sistema digestivo a través de la vía del eje intestino-cerebro (nervio vago).
+        4. Proponer 3 pasos breves para de-escalar este pensamiento.
+
+        IMPORTANTE: Devuelve la respuesta estrictamente bajo el formato de esquema JSON especificado. No agregues texto antes ni después de las llaves del JSON.
+      `;
+
+      const response = await aiClient.models.generateContent({
+        model: "gemini-3.5-flash",
+        contents: promptText,
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              reframed: {
+                type: Type.STRING,
+                description: "Pensamiento racional alternativo adaptativo muy pulido en español"
+              },
+              clinical_commentary: {
+                type: Type.STRING,
+                description: "Breve comentario psicológico explicativo sobre distorsiones afectando el eje cerebro-intestino"
+              },
+              breathing_technique: {
+                type: Type.STRING,
+                description: "Técnica de respiración práctica recomendada"
+              }
+            },
+            required: ["reframed", "clinical_commentary", "breathing_technique"]
+          }
+        }
+      });
+
+      const parsed = JSON.parse(response.text || "{}");
+      return res.json({
+        success: true,
+        mock: false,
+        ...parsed
+      });
+
+    } else {
+      const promptText = `
+        Eres un terapeuta zen, psicólogo clínico y guía clínico de reducción de estrés (MBSR).
+        El usuario indica que se siente sobrepasado por el siguiente padecimiento o emoción: "${currentFeeling || "Estrés generalizado"}"
+        
+        Por favor, devuélveme una guía de anclaje de emergencia:
+        1. Explícale brevemente la relación somática de esta emoción con su cuerpo (ej. tensión gástrica, vasoconstricción local).
+        2. Proporciona una lista de 3 recomendaciones prácticas y oportunas que pueda ejecutar en menos de 5 minutos sentando las bases físicas de la calma.
+        3. Define un patrón de respiración clínica óptimo (ej: 4-4-4-4 para equilibrio del sistema autónomo).
+        4. Escribe un mantra o frase corta de anclaje para detener el monólogo mental rumiante.
+
+        IMPORTANTE: Devuelve la respuesta estrictamente bajo el formato de esquema JSON especificado. No agregues texto antes ni después de las llaves del JSON.
+      `;
+
+      const response = await aiClient.models.generateContent({
+        model: "gemini-3.5-flash",
+        contents: promptText,
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              recommendations: {
+                type: Type.ARRAY,
+                items: { type: Type.STRING },
+                description: "Hasta 3 recomendaciones físicas breves y concretas"
+              },
+              breathing_pattern: {
+                type: Type.STRING,
+                description: "Patrón respiratorio recomendado con segundos"
+              },
+              mantra: {
+                type: Type.STRING,
+                description: "Frase de anclaje meditativo de atención plena en español"
+              },
+              psychological_insight: {
+                type: Type.STRING,
+                description: "Explicación breve del eje mente-cuerpo o efecto tensional"
+              }
+            },
+            required: ["recommendations", "breathing_pattern", "mantra", "psychological_insight"]
+          }
+        }
+      });
+
+      const parsed = JSON.parse(response.text || "{}");
+      return res.json({
+        success: true,
+        mock: false,
+        ...parsed
+      });
+    }
+  } catch (error: any) {
+    console.error("Gemini Mind-Zen Error:", error);
+    return res.json({
+      success: false,
+      error: error.message,
+      reframed: "Tengo un reto en mi día, pero tengo la capacidad y la compasión necesarias para manejarlo un momento a la vez.",
+      clinical_commentary: "Error al invocar el análisis avanzado de Gemini, pero recuerda respirar hondo. Tu salud digestiva depende directamente de cómo le permitas a tu cuerpo asimilar las pausas.",
+      breathing_technique: "Inhalación abdominal lenta 4 segundos, exhalar en siseo suave 6 segundos."
+    });
+  }
+});
+
 // 4. Recipe AI Generator
 app.post("/api/generate-recipe", async (req, res) => {
   const { category, filterIngredients } = req.body;

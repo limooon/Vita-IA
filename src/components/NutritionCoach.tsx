@@ -29,6 +29,14 @@ export default function NutritionCoach({
   const [generatingSummary, setGeneratingSummary] = useState(false);
   const [savingGoal, setSavingGoal] = useState(false);
   const [selectedSport, setSelectedSport] = useState<string>("Fitness General");
+  const [sportHabits, setSportHabits] = useState([
+    { id: "hab_protein", label: "Consumir proteína magra adecuada (mantenimiento y fuerza muscular)", checked: true },
+    { id: "hab_fiber", label: "Alimentación alta en fibra soluble prebiótica (control de peso y saciedad)", checked: false },
+    { id: "hab_training", label: "Entrenar al menos 30 minutos (sesión aeróbica/anaeróbica)", checked: true },
+    { id: "hab_electrolytes", label: "Tomar electrolitos sin edulcorantes artificiales (evitar deshidratación)", checked: false },
+    { id: "hab_sleep", label: "Dormir 7.5-8 horas para regeneración de la mucosa y síntesis muscular", checked: false },
+    { id: "hab_breathing", label: "Ejercicios de respiración diafragmática (evitar reflujo ácido)", checked: true }
+  ]);
 
   // Tips section
   const [activeTip, setActiveTip] = useState(
@@ -128,17 +136,17 @@ export default function NutritionCoach({
           <span>Volver</span>
         </button>
         <span className="text-slate-300 font-mono">/</span>
-        <span className="text-xs font-mono font-bold text-slate-500">Coach Nutricional IA</span>
+        <span className="text-xs font-mono font-bold text-slate-500">Vita Status</span>
       </div>
 
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h2 className="text-2xl font-bold tracking-tight text-slate-900 flex items-center gap-2">
             <Brain className="h-6 w-6 text-emerald-600 animate-pulse" />
-            <span>Coaching y Hábitos IA</span>
+            <span>Vita Status</span>
           </h2>
           <p className="text-sm text-slate-500">
-            Seguimiento de hidratación, motivación, conteo de metas diarias y resúmenes clínicos de progreso.
+            Tu coach inteligente y gestor de estado preventivo. Monitorea pasos reales, agua diaria y hábitos deportivos.
           </p>
         </div>
         {!isPremium && (
@@ -299,14 +307,23 @@ export default function NutritionCoach({
             <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm space-y-4">
               <h4 className="text-sm font-bold text-slate-800 flex items-center gap-1.5">
                 <Dumbbell className="h-5 w-5 text-amber-500" />
-                <span>Reto de Movilidad Gástrica</span>
+                <span>Metas de Actividad Física</span>
               </h4>
 
-              <div className="space-y-2">
-                <div className="flex justify-between text-xs text-slate-500">
-                  <span>Pasos caminados hoy</span>
-                  <span className="font-bold text-slate-800">{stepsToday} / {dailyStepGoal}</span>
+              <div className="space-y-3">
+                <div className="flex justify-between items-center text-xs text-slate-500">
+                  <span>Pasos caminados hoy:</span>
+                  <div className="flex items-center space-x-1">
+                    <input
+                      type="number"
+                      value={stepsToday}
+                      onChange={(e) => setStepsToday(Math.max(0, Number(e.target.value)))}
+                      className="w-16 rounded-lg border border-slate-200 text-center font-bold text-xs text-slate-800 p-1 bg-slate-50 focus:outline-none focus:ring-1 focus:ring-amber-400"
+                    />
+                    <span className="font-bold text-slate-400">/ {dailyStepGoal}</span>
+                  </div>
                 </div>
+                
                 <div className="bg-slate-100 h-2 rounded-full overflow-hidden">
                   <div 
                     className="bg-amber-500 h-full rounded-full transition-all duration-300"
@@ -317,13 +334,15 @@ export default function NutritionCoach({
 
               <div className="flex space-x-2">
                 <button
-                  onClick={() => setStepsToday(prev => Math.min(dailyStepGoal, prev + 1000))}
+                  type="button"
+                  onClick={() => setStepsToday(prev => prev + 1000)}
                   className="flex-1 py-1.5 rounded-xl border border-slate-200 bg-slate-50/50 text-[10px] font-bold text-slate-700 hover:bg-slate-100"
                 >
                   +1,000 Pasos
                 </button>
                 <button
-                  onClick={() => setStepsToday(prev => Math.min(dailyStepGoal, prev + 2500))}
+                  type="button"
+                  onClick={() => setStepsToday(prev => prev + 2500)}
                   className="flex-1 py-1.5 rounded-xl border border-amber-200 bg-amber-50/20 text-[10px] font-bold text-amber-800 hover:bg-amber-100"
                 >
                   +2,500 Pasos
@@ -331,7 +350,50 @@ export default function NutritionCoach({
               </div>
 
               <div className="bg-slate-50 border border-slate-100 p-2.5 rounded-xl text-[10px] text-slate-500 leading-normal">
-                🚶 Al dar pasos activas la circulación intestinal rítmica, combatiendo estreñimiento de manera natural sin laxantes.
+                🚶 Recuerda que puedes escribir tus pasos exactos arriba. Al caminar activas el peristaltismo combatiendo el estreñimiento de forma natural.
+              </div>
+            </div>
+
+            {/* Specialized Sports & Weight Control Habits (Alta Sinergia de Rendimiento) */}
+            <div className="rounded-2xl border border-emerald-100 bg-white p-5 shadow-sm space-y-4">
+              <h4 className="text-xs uppercase font-extrabold text-slate-400 tracking-widest flex items-center gap-1">
+                <Sparkles className="h-4 w-4 text-emerald-500" />
+                <span>Hábitos de Rendimiento y Peso</span>
+              </h4>
+              <p className="text-[11px] text-slate-500 leading-normal">
+                Cruza metas con tus desafíos para desbloquear insignias y mejorar tu salud sistémica preventiva:
+              </p>
+
+              <div className="space-y-2.5">
+                {sportHabits.map((habit) => (
+                  <label key={habit.id} className="flex items-start gap-2.5 cursor-pointer text-xs group">
+                    <input
+                      type="checkbox"
+                      checked={habit.checked}
+                      onChange={() => {
+                        setSportHabits(prev => prev.map(h => h.id === habit.id ? { ...h, checked: !h.checked } : h));
+                      }}
+                      className="mt-0.5 rounded border-slate-350 text-emerald-600 focus:ring-emerald-500 h-4 w-4"
+                    />
+                    <span className={`text-xs leading-tight font-medium ${habit.checked ? "text-slate-400 line-through" : "text-slate-700 group-hover:text-slate-900"}`}>
+                      {habit.label}
+                    </span>
+                  </label>
+                ))}
+              </div>
+
+              {/* Progress counter */}
+              <div className="border-t border-slate-50 pt-3">
+                <div className="flex justify-between items-center text-[10px] uppercase font-bold text-slate-400 font-mono">
+                  <span>Hábitos deportivos:</span>
+                  <span className="text-emerald-700 font-bold">{sportHabits.filter(h => h.checked).length} / {sportHabits.length}</span>
+                </div>
+                <div className="bg-slate-100 h-1 rounded-full overflow-hidden mt-1.5">
+                  <div 
+                    className="bg-emerald-500 h-full rounded-full transition-all duration-300"
+                    style={{ width: `${(sportHabits.filter(h => h.checked).length / sportHabits.length) * 100}%` }}
+                  />
+                </div>
               </div>
             </div>
 
