@@ -1,8 +1,20 @@
 import React, { useState } from "react";
-import { auth, googleProvider, signInWithPopup, db } from "../lib/firebase";
-import { signInWithEmailAndPassword, createUserWithEmailAndPassword, sendPasswordResetEmail } from "firebase/auth";
-import { doc, setDoc } from "firebase/firestore";
-import { Sparkles, Mail, Lock, User, UserCheck, AlertCircle, Heart, Check, Activity, ArrowRight } from "lucide-react";
+import {
+  auth,
+  googleProvider,
+  signInWithPopup,
+  signInWithRedirect,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  sendPasswordResetEmail,
+  db,
+} from "../lib/firebase";
+import { doc, setDoc, getDoc } from "firebase/firestore";
+import { updateProfile } from "firebase/auth";
+import {
+  Sparkles, Mail, Lock, User, AlertCircle, Heart, Check, Activity,
+  ArrowRight, Eye, EyeOff, Loader2
+} from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
 interface AuthPanelProps {
@@ -13,13 +25,16 @@ export default function AuthPanel({ onAuthSuccess }: AuthPanelProps) {
   const [isRegistering, setIsRegistering] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [name, setName] = useState("");
   const [errorStatus, setErrorStatus] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [showRecovery, setShowRecovery] = useState(false);
   const [recoverySent, setRecoverySent] = useState(false);
 
-  // Onboarding wizard states (Screen 5 Onboarding)
+  // Onboarding wizard states
   const [onboardingStep, setOnboardingStep] = useState(1);
   const [onboardingAge, setOnboardingAge] = useState(30);
   const [onboardingWeight, setOnboardingWeight] = useState(70);
@@ -27,82 +42,180 @@ export default function AuthPanel({ onAuthSuccess }: AuthPanelProps) {
   const [onboardingObjective, setOnboardingObjective] = useState("colon_irritable");
   const [registeredUserObj, setRegisteredUserObj] = useState<any | null>(null);
 
+  // Map Firebase error codes to Spanish messages
+  const translateFirebaseError = (code: string): string => {
+    const map: Record<string, string> = {
+      "auth/email-already-in-use": "Este correo ya está registrado. ¿Deseas iniciar sesión?",
+      "auth/invalid-email": "El formato del correo electrónico no es válido.",
+      "auth/invalid-credential": "Correo o contraseña incorrectos. Verifica tus datos.",
+      "auth/user-disabled": "Esta cuenta ha sido deshabilitada por el administrador.",
+      "auth/user-not-found": "No existe una cuenta con este correo electrónico.",
+      "auth/wrong-password": "Contraseña incorrecta. Intenta de nuevo.",
+      "auth/weak-password": "La contraseña debe tener al menos 6 caracteres.",
+      "auth/too-many-requests": "Demasiados intentos. Espera unos segundos y vuelve a intentar.",
+      "auth/network-request-failed": "Error de conexión. Verifica tu internet y reintenta.",
+      "auth/popup-closed-by-user": "Inicio de sesión cancelado. Vuelve a intentarlo.",
+      "auth/popup-blocked": "El navegador bloqueó la ventana de Google. Usa el modo invitado o intenta con correo electrónico.",
+      "auth/cancelled-popup-request": "Solicitud cancelada. Intenta de nuevo.",
+      "auth/redirect-cancelled-by-user": "Redirección cancelada por el usuario.",
+      "auth/unauthorized-domain": "Dominio no autorizado. Contacta al administrador del proyecto Firebase.",
+      "auth/operation-not-allowed": "Este método de inicio de sesión no está habilitado en Firebase Console.",
+      "auth/requires-recent-login": "Por seguridad, debes volver a iniciar sesión para esta acción.",
+      "auth/account-exists-with-different-credential": "Ya existe una cuenta con este correo usando otro método (Google/Email).",
+    };
+    return map[code] || `Error: ${code}`;
+  };
+
+  const showError = (err: any) => {
+    const code = err?.code || "";
+    const message = translateFirebaseError(code);
+    setErrorStatus(message);
+    setSuccessMessage(null);
+  };
+
+  // --- Google Login (popup + redirect fallback) ---
   const handleGoogleLogin = async () => {
     setLoading(true);
     setErrorStatus(null);
+    setSuccessMessage(null);
     try {
       const result = await signInWithPopup(auth, googleProvider);
-      const user = result.user;
-      
-      const userRef = doc(db, "users", user.uid);
-      const initialProfile = {
-        uid: user.uid,
-        name: user.displayName || "Usuario VitaAI",
-        email: user.email || "",
-        subscriptionStatus: "free",
-        createdAt: new Date().toISOString()
-      };
-      
-      await setDoc(userRef, initialProfile, { merge: true });
-      
-      // Open onboarding wizard if this is Google signup or let's proceed
-      setRegisteredUserObj(initialProfile);
-      setOnboardingStep(1); // Launch onboarding wizard
-    } catch (err: any) {
-      console.error(err);
-      setErrorStatus("Fallo la vinculación con Google. Iniciando sesión local simulada para pruebas...");
-      // Simulate fallback for sandbox
-      simulateDemoAccess();
+      await processGoogleUser(result.user);
+    } catch (popupErr: any) {
+      const code = popupErr?.code || "";
+      if (
+        code === "auth/popup-blocked" ||
+        code === "auth/popup-closed-by-user" ||
+        code === "auth/cancelled-popup-request" ||
+        code === "auth/redirect-cancelled-by-user" ||
+        code === "auth/web-storage-unsupported" ||
+        popupErr?.message?.includes("popup")
+      ) {
+        try {
+          await signInWithRedirect(auth, googleProvider);
+          return; // Page will reload after redirect
+        } catch (redirectErr: any) {
+          console.error("Redirect fallback error:", redirectErr);
+          showError(redirectErr);
+          if (code === "auth/unauthorized-domain") {
+            setErrorStatus(
+              "Dominio no autorizado en Firebase. Agrega '" +
+                window.location.hostname +
+                "' en Firebase Console → Authentication → Settings → Authorized domains."
+            );
+          }
+        }
+      } else if (code === "auth/unauthorized-domain") {
+        setErrorStatus(
+          "Dominio no autorizado. Agrega '" +
+            window.location.hostname +
+            "' en Firebase Console → Authentication → Authorized domains."
+        );
+      } else if (code === "auth/operation-not-allowed") {
+        setErrorStatus(
+          "Google Sign-In no está habilitado. Actívalo en Firebase Console → Authentication → Sign-in providers → Google."
+        );
+      } else {
+        showError(popupErr);
+      }
     } finally {
       setLoading(false);
     }
   };
 
+  const processGoogleUser = async (user: any) => {
+    const userRef = doc(db, "users", user.uid);
+    const snap = await getDoc(userRef);
+    const initialProfile = {
+      uid: user.uid,
+      name: user.displayName || user.email?.split("@")[0] || "Usuario VitaIA",
+      email: user.email || "",
+      subscriptionStatus: "free",
+      createdAt: snap.exists() ? snap.data()?.createdAt : new Date().toISOString(),
+    };
+    await setDoc(userRef, initialProfile, { merge: true });
+
+    // If user already completed onboarding, log them in directly
+    if (snap.exists() && snap.data()?.age && snap.data()?.objective) {
+      onAuthSuccess({ ...initialProfile, ...snap.data() });
+    } else {
+      setRegisteredUserObj(initialProfile);
+      setOnboardingStep(1);
+    }
+  };
+
+  // --- Email/Password Actions ---
   const handleEmailAction = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setErrorStatus(null);
+    setSuccessMessage(null);
+
     try {
       if (showRecovery) {
-        // Recover password
         await sendPasswordResetEmail(auth, email);
         setRecoverySent(true);
+        setSuccessMessage("Enlace de recuperación enviado. Revisa tu bandeja de entrada y spam.");
         setLoading(false);
         return;
       }
 
       if (isRegistering) {
-        // Sign up
+        if (password !== confirmPassword) {
+          setErrorStatus("Las contraseñas no coinciden.");
+          setLoading(false);
+          return;
+        }
+        if (password.length < 6) {
+          setErrorStatus("La contraseña debe tener al menos 6 caracteres.");
+          setLoading(false);
+          return;
+        }
         const userCred = await createUserWithEmailAndPassword(auth, email, password);
         const user = userCred.user;
+        if (name) {
+          await updateProfile(user, { displayName: name });
+        }
         const initialProfile = {
           uid: user.uid,
-          name: name || "Usuario VitaAI",
+          name: name || user.email?.split("@")[0] || "Usuario VitaIA",
           email: user.email || "",
           subscriptionStatus: "free",
-          createdAt: new Date().toISOString()
+          createdAt: new Date().toISOString(),
         };
-        
         await setDoc(doc(db, "users", user.uid), initialProfile);
         setRegisteredUserObj(initialProfile);
-        setOnboardingStep(1); // Direct to Gastro Onboarding configuration steps
+        setOnboardingStep(1);
       } else {
-        // Sign in
         const userCred = await signInWithEmailAndPassword(auth, email, password);
         const user = userCred.user;
-        
-        // Load or success
-        onAuthSuccess({
-          uid: user.uid,
-          name: name || "Usuario VitaAI",
-          email: user.email || "",
-          subscriptionStatus: "free",
-          createdAt: new Date().toISOString()
-        });
+        // Check if onboarding is needed
+        const snap = await getDoc(doc(db, "users", user.uid));
+        if (snap.exists() && snap.data()?.age && snap.data()?.objective) {
+          onAuthSuccess({
+            uid: user.uid,
+            name: user.displayName || snap.data()?.name || "Usuario VitaIA",
+            email: user.email || "",
+            subscriptionStatus: snap.data()?.subscriptionStatus || "free",
+            createdAt: snap.data()?.createdAt || new Date().toISOString(),
+            age: snap.data()?.age,
+            weight: snap.data()?.weight,
+            height: snap.data()?.height,
+            objective: snap.data()?.objective,
+          });
+        } else {
+          setRegisteredUserObj({
+            uid: user.uid,
+            name: user.displayName || "Usuario VitaIA",
+            email: user.email || "",
+            subscriptionStatus: "free",
+            createdAt: new Date().toISOString(),
+          });
+          setOnboardingStep(1);
+        }
       }
     } catch (err: any) {
-      console.error(err);
-      setErrorStatus(err.message || "Credenciales incorrectas o problema de red.");
+      showError(err);
     } finally {
       setLoading(false);
     }
@@ -290,7 +403,7 @@ export default function AuthPanel({ onAuthSuccess }: AuthPanelProps) {
                       placeholder="Ej. Andrés Pérez"
                       value={name}
                       onChange={(e) => setName(e.target.value)}
-                      className="w-full rounded-xl border border-slate-200 pl-10 pr-4 py-2.5 text-sm bg-white focus:outline-none"
+                      className="w-full rounded-xl border border-slate-200 pl-10 pr-4 py-2.5 text-sm bg-white focus:outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100 transition-all"
                     />
                   </div>
                 </div>
@@ -307,49 +420,122 @@ export default function AuthPanel({ onAuthSuccess }: AuthPanelProps) {
                     placeholder="correo@ejemplo.com"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    className="w-full rounded-xl border border-slate-200 pl-10 pr-4 py-2.5 text-sm bg-white focus:outline-none"
+                    className="w-full rounded-xl border border-slate-200 pl-10 pr-4 py-2.5 text-sm bg-white focus:outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100 transition-all"
                   />
                 </div>
               </div>
 
               {!showRecovery && (
-                <div className="space-y-1.5">
-                  <label className="text-xs text-slate-500 font-semibold">Contraseña</label>
-                  <div className="relative">
-                    <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-                    <input
-                      id="auth-password-input"
-                      type="password"
-                      required
-                      placeholder="Min. 6 caracteres"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      className="w-full rounded-xl border border-slate-200 pl-10 pr-4 py-2.5 text-sm bg-white focus:outline-none"
-                    />
+                <>
+                  <div className="space-y-1.5">
+                    <label className="text-xs text-slate-500 font-semibold">Contraseña</label>
+                    <div className="relative">
+                      <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                      <input
+                        id="auth-password-input"
+                        type={showPassword ? "text" : "password"}
+                        required
+                        placeholder="Min. 6 caracteres"
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        className="w-full rounded-xl border border-slate-200 pl-10 pr-10 py-2.5 text-sm bg-white focus:outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100 transition-all"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                        tabIndex={-1}
+                      >
+                        {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </div>
                   </div>
+
+                  {isRegistering && (
+                    <div className="space-y-1.5">
+                      <label className="text-xs text-slate-500 font-semibold">Confirmar Contraseña</label>
+                      <div className="relative">
+                        <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                        <input
+                          id="auth-confirm-password-input"
+                          type={showPassword ? "text" : "password"}
+                          required
+                          placeholder="Repite tu contraseña"
+                          value={confirmPassword}
+                          onChange={(e) => setConfirmPassword(e.target.value)}
+                          className={`w-full rounded-xl border pl-10 pr-4 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 transition-all ${
+                            confirmPassword && password !== confirmPassword
+                              ? "border-rose-300 focus:border-rose-400 focus:ring-rose-100"
+                              : "border-slate-200 focus:border-emerald-400 focus:ring-emerald-100"
+                          }`}
+                        />
+                      </div>
+                      {confirmPassword && password !== confirmPassword && (
+                        <p className="text-[10px] text-rose-500 font-medium pl-1">Las contraseñas no coinciden</p>
+                      )}
+                    </div>
+                  )}
+                </>
+              )}
+
+              {successMessage && (
+                <div className="rounded-xl bg-emerald-50 p-3 text-xs text-emerald-800 border border-emerald-200 flex items-start space-x-2">
+                  <Check className="h-4 w-4 text-emerald-500 shrink-0 mt-0.5" />
+                  <p>{successMessage}</p>
                 </div>
               )}
 
               {recoverySent && (
-                <div className="rounded-xl bg-emerald-50 p-3 text-xs text-emerald-800 border-l-4 border-emerald-500">
-                  ✓ Enlace enviado. Verifica tu buzón de correo.
-                </div>
+                <motion.div
+                  initial={{ opacity: 0, y: -8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="rounded-xl bg-emerald-50 p-4 text-xs text-emerald-800 border border-emerald-200 space-y-2"
+                >
+                  <p className="font-semibold flex items-center gap-1.5">
+                    <Check className="h-4 w-4 text-emerald-500" /> Enlace enviado con éxito
+                  </p>
+                  <p className="text-emerald-600">
+                    Hemos enviado un correo a <strong>{email}</strong>. Revisa tu bandeja de entrada y la carpeta de spam. El enlace expira en 1 hora.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => { setShowRecovery(false); setRecoverySent(false); setEmail(""); setSuccessMessage(null); }}
+                    className="text-emerald-700 font-bold hover:underline text-[11px]"
+                  >
+                    Volver al inicio de sesión
+                  </button>
+                </motion.div>
               )}
 
               {errorStatus && (
-                <div className="rounded-xl bg-orange-50 p-3 flex items-start space-x-2 border border-orange-200">
-                  <AlertCircle className="h-4 w-4 text-orange-650 shrink-0 mt-0.5" />
-                  <p className="text-xs text-orange-700">{errorStatus}</p>
-                </div>
+                <motion.div
+                  initial={{ opacity: 0, y: -8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="rounded-xl bg-orange-50 p-3 flex items-start space-x-2 border border-orange-200"
+                >
+                  <AlertCircle className="h-4 w-4 text-orange-500 shrink-0 mt-0.5" />
+                  <p className="text-xs text-orange-700 leading-relaxed">{errorStatus}</p>
+                </motion.div>
               )}
 
               <button
                 id="submit-auth-credentials-btn"
                 type="submit"
                 disabled={loading}
-                className="w-full rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 py-3 text-sm font-bold text-white shadow-md transition-all"
+                className="w-full rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 py-3 text-sm font-bold text-white shadow-md transition-all disabled:opacity-60 flex items-center justify-center gap-2"
               >
-                {loading ? "Verificando..." : showRecovery ? "Enviar Recuperación" : isRegistering ? "Comenzar Onboarding" : "Ingresar"}
+                {loading ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <span>Procesando...</span>
+                  </>
+                ) : showRecovery ? (
+                  "Enviar Enlace de Recuperación"
+                ) : isRegistering ? (
+                  "Crear Cuenta"
+                ) : (
+                  "Iniciar Sesión"
+                )}
               </button>
 
             </form>

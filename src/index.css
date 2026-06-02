@@ -1,1 +1,126 @@
 @import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Hide print report on screen, show during print */
+.hidden-print-on-screen {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  width: 100%;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* ─── Print Mode ─────────────────────────── */
+@media print {
+  /* Hide screen-only elements */
+  html, body { overflow: visible !important; }
+  
+  nav, header, footer, .no-print,
+  button:not(.print-keep),
+  [class*="sticky"], [class*="fixed"],
+  main > *:not(#print-plan-report) {
+    display: none !important;
+  }
+
+  /* Reset body */
+  body {
+    background: white !important;
+    color: #1e293b !important;
+    font-size: 11px;
+    line-height: 1.5;
+    margin: 0;
+    padding: 0;
+  }
+
+  /* Show print report */
+  #print-plan-report,
+  .hidden-print-on-screen {
+    display: block !important;
+    position: static !important;
+    left: auto !important;
+    top: auto !important;
+    opacity: 1 !important;
+    pointer-events: auto !important;
+    visibility: visible !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 15mm 12mm !important;
+    background: white !important;
+  }
+
+  /* Page setup */
+  @page {
+    margin: 12mm;
+    size: A4;
+  }
+}
+}
+
+@media print {
+  @page {
+    margin: 12mm;
+    size: A4;
+  }
+
+  body {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+    background: white !important;
+    color: #1e293b !important;
+    font-size: 11px;
+    line-height: 1.5;
+  }
+
+  .dark body,
+  body.dark,
+  html.dark body {
+    background: white !important;
+    color: #1e293b !important;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  .print-only {
+    display: block !important;
+  }
+}
+
+/* Smooth transitions for theme switching */
+html {
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+html.dark {
+  color-scheme: dark;
+}
+
+/* Custom animations */
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.4s ease-out;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 3px;
+}
+.dark ::-webkit-scrollbar-thumb {
+  background: #475569;
+}

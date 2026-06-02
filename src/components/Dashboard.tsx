@@ -22,9 +22,19 @@ import {
   Trophy,
   Dumbbell,
   Plane,
-  ArrowLeftRight
+  ArrowLeftRight,
+  X,
+  ChevronLeft,
+  ChevronRight,
+  Image,
+  AlertCircle,
+  CheckCircle,
+  Flame,
+  Beef,
+  Wheat,
+  Droplets
 } from "lucide-react";
-import { motion } from "motion/react";
+import { motion, AnimatePresence } from "motion/react";
 import VitaStatsChart from "./VitaStatsChart";
 
 interface DashboardProps {
@@ -55,6 +65,28 @@ export default function Dashboard({
   const [height, setHeight] = useState(user.height || 170);
   const [objective, setObjective] = useState(user.objective || "colon_irritable");
   const [saveLoading, setSaveLoading] = useState(false);
+  const [detailModal, setDetailModal] = useState<FoodAnalysis | null>(null);
+  const [showAllTable, setShowAllTable] = useState(false);
+  const [filterPeriod, setFilterPeriod] = useState<"semana" | "mes" | "año" | "todos">("todos");
+  const [currentPage, setCurrentPage] = useState(1);
+  const ITEMS_PER_PAGE = 10;
+
+  const filterAnalysesByPeriod = (list: FoodAnalysis[], period: typeof filterPeriod) => {
+    if (period === "todos") return list;
+    const now = new Date();
+    const cutoff = new Date();
+    if (period === "semana") cutoff.setDate(now.getDate() - 7);
+    else if (period === "mes") cutoff.setMonth(now.getMonth() - 1);
+    else if (period === "año") cutoff.setFullYear(now.getFullYear() - 1);
+    return list.filter(a => new Date(a.createdAt).getTime() >= cutoff.getTime());
+  };
+
+  const filteredAnalyses = filterAnalysesByPeriod(analyses, filterPeriod);
+  const totalPages = Math.max(1, Math.ceil(filteredAnalyses.length / ITEMS_PER_PAGE));
+  const paginatedAnalyses = filteredAnalyses.slice(
+    (currentPage - 1) * ITEMS_PER_PAGE,
+    currentPage * ITEMS_PER_PAGE
+  );
 
   const handleSaveMetrics = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -539,10 +571,10 @@ export default function Dashboard({
               </h3>
               {analyses.length > 0 && (
                 <button
-                  onClick={() => onViewChange("analyze")}
+                  onClick={() => { setShowAllTable(!showAllTable); setCurrentPage(1); setFilterPeriod("todos"); }}
                   className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300"
                 >
-                  Ver todos
+                  {showAllTable ? "Ocultar tabla" : "Ver todos"}
                 </button>
               )}
             </div>
@@ -594,7 +626,7 @@ export default function Dashboard({
                         <span>G: {record.fat}g</span>
                       </div>
                       <button
-                        onClick={() => onViewChange("analyze")} // Direct to analyze results section
+                        onClick={(e) => { e.stopPropagation(); setDetailModal(record); }}
                         className="text-xs text-emerald-600 dark:text-emerald-400 font-bold hover:underline inline-flex items-center"
                       >
                         Ver detalle
@@ -604,6 +636,145 @@ export default function Dashboard({
                 ))}
               </div>
             )}
+
+            {/* --- FULL HISTORY TABLE WITH FILTERS & PAGINATION --- */}
+            <AnimatePresence>
+              {showAllTable && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: "auto" }}
+                  exit={{ opacity: 0, height: 0 }}
+                  className="overflow-hidden"
+                >
+                  <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden mt-2">
+                    {/* Filter tabs */}
+                    <div className="flex items-center gap-1 p-3 border-b border-slate-100 bg-slate-50/50 flex-wrap">
+                      <span className="text-[11px] text-slate-500 font-bold mr-2">Filtrar:</span>
+                      {(["semana", "mes", "año", "todos"] as const).map((p) => (
+                        <button
+                          key={p}
+                          onClick={() => { setFilterPeriod(p); setCurrentPage(1); }}
+                          className={`px-3 py-1 rounded-lg text-[11px] font-bold transition-all ${
+                            filterPeriod === p
+                              ? "bg-emerald-500 text-white shadow-sm"
+                              : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-100"
+                          }`}
+                        >
+                          {p === "semana" ? "Semana" : p === "mes" ? "Mes" : p === "año" ? "Año" : "Todos"}
+                        </button>
+                      ))}
+                      <span className="ml-auto text-[11px] text-slate-400 font-medium">
+                        {filteredAnalyses.length} registro{filteredAnalyses.length !== 1 ? "s" : ""}
+                      </span>
+                    </div>
+
+                    {/* Table */}
+                    {paginatedAnalyses.length === 0 ? (
+                      <div className="p-10 text-center text-slate-400 text-sm">
+                        Sin registros para el período seleccionado.
+                      </div>
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left text-xs">
+                          <thead className="bg-slate-50 border-b border-slate-100">
+                            <tr>
+                              <th className="px-3 py-2.5 font-bold text-slate-500 uppercase text-[10px]">Imagen</th>
+                              <th className="px-3 py-2.5 font-bold text-slate-500 uppercase text-[10px]">Alimento</th>
+                              <th className="px-3 py-2.5 font-bold text-slate-500 uppercase text-[10px] text-center">Calorías</th>
+                              <th className="px-3 py-2.5 font-bold text-slate-500 uppercase text-[10px] text-center">P</th>
+                              <th className="px-3 py-2.5 font-bold text-slate-500 uppercase text-[10px] text-center">C</th>
+                              <th className="px-3 py-2.5 font-bold text-slate-500 uppercase text-[10px] text-center">G</th>
+                              <th className="px-3 py-2.5 font-bold text-slate-500 uppercase text-[10px] text-center">Riesgo</th>
+                              <th className="px-3 py-2.5 font-bold text-slate-500 uppercase text-[10px]">Fecha</th>
+                              <th className="px-3 py-2.5 font-bold text-slate-500 uppercase text-[10px] text-center">Acción</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-50">
+                            {paginatedAnalyses.map((record, idx) => (
+                              <tr key={record.id || idx} className="hover:bg-slate-50/50 transition-colors">
+                                <td className="px-3 py-2">
+                                  {record.imageUrl ? (
+                                    <img
+                                      src={record.imageUrl}
+                                      alt="comida"
+                                      className="h-10 w-10 rounded-lg object-cover border border-slate-200 shadow-sm"
+                                      referrerPolicy="no-referrer"
+                                    />
+                                  ) : (
+                                    <div className="h-10 w-10 rounded-lg bg-slate-100 flex items-center justify-center">
+                                      <Image className="h-4 w-4 text-slate-350" />
+                                    </div>
+                                  )}
+                                </td>
+                                <td className="px-3 py-2">
+                                  <p className="font-semibold text-slate-700 truncate max-w-[160px]">
+                                    {record.foods_detected.slice(0, 2).join(", ") || "Platillo"}
+                                  </p>
+                                  {record.confidence && (
+                                    <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
+                                      record.confidence === "Alta" ? "bg-emerald-100 text-emerald-700" :
+                                      record.confidence === "Media" ? "bg-amber-100 text-amber-700" : "bg-rose-100 text-rose-700"
+                                    }`}>
+                                      {record.confidence}
+                                    </span>
+                                  )}
+                                </td>
+                                <td className="px-3 py-2 text-center font-bold text-slate-700">{record.estimated_calories}</td>
+                                <td className="px-3 py-2 text-center text-emerald-600 font-medium">{record.protein}g</td>
+                                <td className="px-3 py-2 text-center text-blue-600 font-medium">{record.carbs}g</td>
+                                <td className="px-3 py-2 text-center text-rose-600 font-medium">{record.fat}g</td>
+                                <td className="px-3 py-2 text-center">
+                                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                                    record.digestive_risk === "High" ? "bg-rose-100 text-rose-700" :
+                                    record.digestive_risk === "Medium" ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700"
+                                  }`}>
+                                    {record.digestive_risk === "High" ? "Alto" : record.digestive_risk === "Medium" ? "Medio" : "Bajo"}
+                                  </span>
+                                </td>
+                                <td className="px-3 py-2 text-slate-500 font-mono text-[10px] whitespace-nowrap">
+                                  {new Date(record.createdAt).toLocaleDateString("es-ES", { day: "2-digit", month: "short", year: "numeric" })}
+                                </td>
+                                <td className="px-3 py-2 text-center">
+                                  <button
+                                    onClick={() => setDetailModal(record)}
+                                    className="text-[10px] font-bold text-emerald-600 hover:text-emerald-700 hover:underline"
+                                  >
+                                    Detalle
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+
+                    {/* Pagination */}
+                    {totalPages > 1 && (
+                      <div className="flex items-center justify-between px-3 py-2.5 border-t border-slate-100 bg-slate-50/30">
+                        <button
+                          onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                          disabled={currentPage === 1}
+                          className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed"
+                        >
+                          <ChevronLeft className="h-4 w-4" />
+                        </button>
+                        <span className="text-[11px] text-slate-500 font-medium">
+                          Página {currentPage} de {totalPages}
+                        </span>
+                        <button
+                          onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                          disabled={currentPage === totalPages}
+                          className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed"
+                        >
+                          <ChevronRight className="h-4 w-4" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
 
         </div>
@@ -761,6 +932,159 @@ export default function Dashboard({
         </div>
 
       </div>
+
+      {/* --- DETAIL MODAL --- */}
+      <AnimatePresence>
+        {detailModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+              onClick={() => setDetailModal(null)}
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              transition={{ type: "spring", damping: 25, stiffness: 300 }}
+              className="relative bg-white rounded-2xl shadow-2xl max-w-xl w-full max-h-[85vh] overflow-y-auto z-10"
+            >
+              {/* Close button */}
+              <button
+                onClick={() => setDetailModal(null)}
+                className="absolute top-4 right-4 p-1.5 rounded-full hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors z-20"
+              >
+                <X className="h-5 w-5" />
+              </button>
+
+              {/* Image */}
+              {detailModal.imageUrl && (
+                <div className="w-full h-48 sm:h-56 overflow-hidden rounded-t-2xl bg-slate-100">
+                  <img
+                    src={detailModal.imageUrl}
+                    alt="Platillo analizado"
+                    className="w-full h-full object-cover"
+                    referrerPolicy="no-referrer"
+                  />
+                </div>
+              )}
+
+              <div className="p-6 space-y-5">
+                {/* Header */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-4 border-b border-slate-100">
+                  <div>
+                    <span className="text-[10px] text-slate-400 font-mono uppercase font-bold">Diagnóstico Alimenticio</span>
+                    <h3 className="text-lg font-bold text-slate-800">
+                      {detailModal.foods_detected.join(", ")}
+                    </h3>
+                    {detailModal.confidence && (
+                      <div className="mt-1 flex items-center gap-1">
+                        <span className="text-[11px] text-slate-500">Confianza:</span>
+                        <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full uppercase ${
+                          detailModal.confidence === "Alta" ? "bg-emerald-100 text-emerald-800" :
+                          detailModal.confidence === "Media" ? "bg-amber-100 text-amber-800" : "bg-rose-100 text-rose-800"
+                        }`}>
+                          {detailModal.confidence}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                  <div className={`rounded-xl px-3 py-1.5 border text-xs font-bold flex items-center gap-1 shrink-0 ${
+                    detailModal.digestive_risk === "High" ? "bg-rose-50 text-rose-700 border-rose-200" :
+                    detailModal.digestive_risk === "Medium" ? "bg-amber-50 text-amber-700 border-amber-200" :
+                    "bg-emerald-50 text-emerald-700 border-emerald-200"
+                  }`}>
+                    <ShieldAlert className="h-3.5 w-3.5" />
+                    <span>Riesgo: {detailModal.digestive_risk === "High" ? "ALTO" : detailModal.digestive_risk === "Medium" ? "MEDIO" : "BAJO"}</span>
+                  </div>
+                </div>
+
+                {/* Macronutrients grid */}
+                <div className="grid grid-cols-4 gap-3">
+                  <div className="bg-slate-50 rounded-xl p-3 text-center">
+                    <Flame className="h-4 w-4 mx-auto text-slate-400 mb-1" />
+                    <p className="text-lg font-extrabold text-slate-800">{detailModal.estimated_calories}</p>
+                    <p className="text-[10px] text-slate-400 uppercase font-bold">kcal</p>
+                  </div>
+                  <div className="bg-emerald-50/50 rounded-xl p-3 text-center">
+                    <Beef className="h-4 w-4 mx-auto text-emerald-500 mb-1" />
+                    <p className="text-lg font-extrabold text-emerald-700">{detailModal.protein}g</p>
+                    <p className="text-[10px] text-emerald-600 uppercase font-bold">Proteínas</p>
+                  </div>
+                  <div className="bg-blue-50/50 rounded-xl p-3 text-center">
+                    <Wheat className="h-4 w-4 mx-auto text-blue-500 mb-1" />
+                    <p className="text-lg font-extrabold text-blue-700">{detailModal.carbs}g</p>
+                    <p className="text-[10px] text-blue-600 uppercase font-bold">Carbos</p>
+                  </div>
+                  <div className="bg-rose-50/50 rounded-xl p-3 text-center">
+                    <Droplets className="h-4 w-4 mx-auto text-rose-500 mb-1" />
+                    <p className="text-lg font-extrabold text-rose-700">{detailModal.fat}g</p>
+                    <p className="text-[10px] text-rose-600 uppercase font-bold">Grasas</p>
+                  </div>
+                </div>
+
+                {/* Recommendations */}
+                <div className="space-y-3">
+                  <h4 className="text-sm font-bold text-slate-800 flex items-center gap-1.5">
+                    <AlertCircle className="h-4 w-4 text-amber-500" />
+                    Advertencias Clínicas
+                  </h4>
+                  <ul className="space-y-2">
+                    {detailModal.recommendations.map((rec, i) => (
+                      <li key={i} className="text-xs text-slate-600 flex items-start gap-2">
+                        <span className="text-amber-500 font-extrabold mt-0.5">•</span>
+                        <span>{rec}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+
+                {/* Alternatives */}
+                <div className="space-y-3">
+                  <h4 className="text-sm font-bold text-slate-800 flex items-center gap-1.5">
+                    <CheckCircle className="h-4 w-4 text-emerald-500" />
+                    Alternativas Amigables
+                  </h4>
+                  <ul className="space-y-2">
+                    {detailModal.alternatives.map((alt, i) => (
+                      <li key={i} className="text-xs text-slate-600 flex items-start gap-2">
+                        <span className="text-emerald-500 font-extrabold mt-0.5">✓</span>
+                        <span>{alt}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+
+                {/* Date footer */}
+                <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-[10px] text-slate-400 font-mono">
+                  <span className="flex items-center gap-1">
+                    <Clock className="h-3 w-3" />
+                    {new Date(detailModal.createdAt).toLocaleDateString("es-ES", { day: "2-digit", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" })}
+                  </span>
+                  <span className="text-[10px] text-slate-350 bg-slate-50 px-2 py-0.5 rounded-full">
+                    ID: {detailModal.id?.slice(0, 8) || "N/A"}
+                  </span>
+                </div>
+
+                {/* Disclaimer */}
+                <div className="rounded-xl bg-slate-50 p-3 border border-slate-100 text-[10px] text-slate-400 leading-normal text-center">
+                  ⚠️ El análisis visual de VitaAI es netamente estimativo y educativo. No reemplaza un laboratorio presencial ni una consulta con tu médico o nutricionista.
+                </div>
+
+                {/* Close button footer */}
+                <button
+                  onClick={() => setDetailModal(null)}
+                  className="w-full rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold py-2.5 transition-colors"
+                >
+                  Cerrar Detalle
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
     </div>
   );

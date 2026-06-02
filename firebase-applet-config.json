@@ -1,10 +1,9 @@
 {
-  "projectId": "golden-defender-d6tp2",
-  "appId": "1:492748127348:web:45e07d0c5e8fda4e57e521",
-  "apiKey": "AIzaSyDGYGBwZ-WAFLnd3OR2oNc8sM373JGk1Fg",
-  "authDomain": "golden-defender-d6tp2.firebaseapp.com",
-  "firestoreDatabaseId": "ai-studio-3a142341-b982-4889-8914-690baffd4a37",
-  "storageBucket": "golden-defender-d6tp2.firebasestorage.app",
-  "messagingSenderId": "492748127348",
-  "measurementId": ""
+  "apiKey": "AIzaSyCgIycZBacplrBgWmAtu4oidmk3PiWY8Qo",
+  "authDomain": "vitaia-ea02e.firebaseapp.com",
+  "projectId": "vitaia-ea02e",
+  "storageBucket": "vitaia-ea02e.firebasestorage.app",
+  "messagingSenderId": "726722448033",
+  "appId": "1:726722448033:web:21734d4c099757afd4fee0",
+  "measurementId": "G-ZMCQBSY4WP"
 }

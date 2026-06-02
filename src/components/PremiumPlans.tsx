@@ -4,6 +4,7 @@ import { Check, X, Sparkles, CreditCard, Star, RefreshCcw, ShieldCheck, Dumbbell
 import { motion } from "motion/react";
 import { doc, updateDoc } from "firebase/firestore";
 import { db } from "../lib/firebase";
+import { initiateCheckout, isDevMode } from "../lib/payments";
 
 interface PremiumPlansProps {
   user: UserProfile;
@@ -24,46 +25,47 @@ export default function PremiumPlans({
     setErrorMessage(null);
     try {
       const isMax = plan === "vita_ia_max";
-      const response = await fetch("/api/checkout-session", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          planName: isMax ? "vita_ia_max" : "premium_monthly",
-          priceAmount: isMax ? 15.00 : 7.99,
-          userId: user.uid
-        })
-      });
+      const result = await initiateCheckout(plan, user.uid, user.email);
 
-      const data = await response.json();
+      if (!result.success) {
+        throw new Error(result.error || "No se pudo iniciar el pago");
+      }
 
-      if (data.success && data.sessionId) {
-        // Since we are simulating checkout to keep it friendly and fully functional inside the sandbox,
-        // we wait 2 seconds and automatically fire the upgrade handler to let reviewers test easily!
+      if (result.needsNativeIAP) {
+        // Mobile native IAP: platform-specific purchase flow
+        // In production, trigger StoreKit / Google Play Billing here
+        // For dev, simulate success
         setTimeout(async () => {
-          if (isMax) {
-            const userRef = doc(db, "users", user.uid);
-            try {
-              await updateDoc(userRef, { subscriptionStatus: "vita_ia_max" });
-            } catch (e) {
-              console.warn("Firestore status update bypassed", e);
-            }
-            localStorage.setItem(`premium_checkout_completed_${user.uid}`, "vita_ia_max");
-          } else {
-            const userRef = doc(db, "users", user.uid);
-            try {
-              await updateDoc(userRef, { subscriptionStatus: "premium" });
-            } catch (e) {
-              console.warn(e);
-            }
-            localStorage.setItem(`premium_checkout_completed_${user.uid}`, "premium");
-          }
+          const newStatus = isMax ? "vita_ia_max" : "premium";
+          try { await updateDoc(doc(db, "users", user.uid), { subscriptionStatus: newStatus }); } catch (e) {}
+          localStorage.setItem(`premium_checkout_completed_${user.uid}`, newStatus);
           await onUpgradeSuccess();
           setLoading(false);
           onViewChange(isMax ? "vita-ia-max" : "dashboard");
-        }, 1800);
-      } else {
-        throw new Error("No se pudo iniciar el portal seguro de Stripe");
+        }, 1500);
+        return;
       }
+
+      if (result.mock) {
+        // Dev mode: simulate payment
+        setTimeout(async () => {
+          const newStatus = isMax ? "vita_ia_max" : "premium";
+          try { await updateDoc(doc(db, "users", user.uid), { subscriptionStatus: newStatus }); } catch (e) {}
+          localStorage.setItem(`premium_checkout_completed_${user.uid}`, newStatus);
+          await onUpgradeSuccess();
+          setLoading(false);
+          onViewChange(isMax ? "vita-ia-max" : "dashboard");
+        }, 1500);
+        return;
+      }
+
+      // Real Stripe: redirect to checkout
+      if (result.checkoutUrl) {
+        window.location.href = result.checkoutUrl;
+        return;
+      }
+
+      throw new Error("No se recibió URL de pago");
 
     } catch (err: any) {
       console.error(err);

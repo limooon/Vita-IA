@@ -2,260 +2,383 @@ import express from "express";
 import path from "path";
 import dotenv from "dotenv";
 import { createServer as createViteServer } from "vite";
+import Stripe from "stripe";
 import { GoogleGenAI, Type } from "@google/genai";
+import { getAIProvider } from "./src/lib/ai-providers";
+import { initFirebaseAdmin, checkServerLimit, trackServerUsage } from "./server/lib/usage";
+import { getCachedResponse, setCachedResponse, getCacheStats } from "./server/lib/cache";
 
 // Initialize environment variables
 dotenv.config();
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3000;
 
 // High-limit parser for food images base64 data payloads
+// IMPORTANT: Stripe webhook must receive raw body before JSON parsing
+app.use("/api/stripe-webhook", express.raw({ type: "application/json" }));
 app.use(express.json({ limit: "25mb" }));
 app.use(express.urlencoded({ limit: "25mb", extended: true }));
 
-// Initialize Gemini Client
-const geminiApiKey = process.env.GEMINI_API_KEY || "";
-let aiClient: GoogleGenAI | null = null;
+// ─── Stripe ──────────────────────────────────────────────
 
-if (geminiApiKey) {
-  aiClient = new GoogleGenAI({
-    apiKey: geminiApiKey,
-    httpOptions: {
-      headers: {
-        'User-Agent': 'aistudio-build',
-      }
-    }
+const stripeSecretKey = process.env.STRIPE_SECRET_KEY || "";
+const stripeWebhookSecret = process.env.STRIPE_WEBHOOK_SECRET || "";
+let stripeClient: Stripe | null = null;
+
+if (stripeSecretKey) {
+  stripeClient = new Stripe(stripeSecretKey, {
+    apiVersion: "2025-03-31.basil" as any,
   });
+}
+
+const STRIPE_PRICE_PREMIUM = process.env.STRIPE_PRICE_PREMIUM || "price_premium_monthly";
+const STRIPE_PRICE_MAX = process.env.STRIPE_PRICE_MAX || "price_vita_max_monthly";
+
+// ─── Multi-AI Provider ───────────────────────────────────
+
+const aiProvider = getAIProvider();
+
+// Legacy Gemini client for backward-compatible endpoints
+const geminiKey = process.env.GEMINI_API_KEY || "";
+const legacyGemini = geminiKey ? new GoogleGenAI({ apiKey: geminiKey }) : null;
+
+// aiClient wraps the new provider + legacy Gemini as fallback
+const aiClient = {
+  isAvailable: !!aiProvider.isAvailable || !!legacyGemini,
+  models: {
+    generateContent: async (params: any): Promise<any> => {
+      // Try new multi-provider first
+      if (aiProvider.isAvailable) {
+        try {
+          return await adaptToProvider(params);
+        } catch (e) {
+          console.warn("Multi-provider call failed, falling back to Gemini:", (e as Error).message);
+        }
+      }
+      // Legacy Gemini fallback
+      if (legacyGemini) return legacyGemini.models.generateContent(params);
+      throw new Error("No AI configured. Set GEMINI_API_KEY or OPENROUTER_API_KEY in .env");
+    },
+  },
+  chats: {
+    create: (params: any) => ({
+      sendMessage: async (msg: any) => {
+        if (aiProvider.isAvailable) {
+          try {
+            const prompt = typeof msg.message === "string" ? msg.message : msg.message?.parts?.[0]?.text || "";
+            const history = (params.history || []).map((h: any) => ({
+              role: h.role === "model" ? "assistant" : "user",
+              content: h.parts?.[0]?.text || "",
+            }));
+            const r = await aiProvider.execute({
+              task: "chat",
+              prompt,
+              systemPrompt: params.config?.systemInstruction || "",
+              history,
+              model: "deepseek-chat",
+            });
+            return { text: r.text };
+          } catch {}
+        }
+        if (legacyGemini) {
+          const session = legacyGemini.chats.create(params);
+          return session.sendMessage(msg);
+        }
+        return { text: "AI no disponible." };
+      },
+    }),
+  },
+};
+
+async function adaptToProvider(params: any): Promise<{ text: string }> {
+  const isVision = params.contents?.some?.((c: any) => c?.inlineData) || false;
+  const contentParts = Array.isArray(params.contents) ? params.contents : [params.contents];
+  const promptText = contentParts.find((c: any) => c?.text || typeof c === "string")?.text || "";
+  const imgPart = contentParts.find((c: any) => c?.inlineData);
+  const imageBase64 = imgPart?.inlineData?.data || null;
+  const schema = params.config?.responseSchema || null;
+  const sysInstruction = params.config?.systemInstruction || null;
+
+  const result = await aiProvider.execute({
+    task: isVision ? "vision" : (schema ? "structured" : "generate"),
+    prompt: promptText,
+    imageBase64: imageBase64 || undefined,
+    systemPrompt: sysInstruction,
+    schema: schema || undefined,
+    temperature: params.config?.temperature,
+  });
+
+  return {
+    text: result.parsed ? JSON.stringify(result.parsed) : result.text,
+  };
+}
+
+// ─── Firebase Admin (Usage Tracking) ─────────────────────
+
+initFirebaseAdmin();
+
+// ─── Helpers ─────────────────────────────────────────────
+
+function extractUserId(req: express.Request): string | null {
+  return (req.body?.userId as string) || (req.headers["x-user-id"] as string) || null;
+}
+
+function extractPlan(req: express.Request): "free" | "premium" | "vita_ia_max" {
+  const plan = (req.body?.plan || req.headers["x-user-plan"] || "free") as string;
+  if (plan === "premium" || plan === "vita_ia_max") return plan;
+  return "free";
+}
+
+async function enforceLimit(
+  req: express.Request,
+  res: express.Response,
+  event: "analysis" | "chat"
+): Promise<boolean> {
+  const userId = extractUserId(req);
+  if (!userId) {
+    res.status(401).json({ error: "Usuario no autenticado. Incluye userId o x-user-id." });
+    return false;
+  }
+  const plan = extractPlan(req);
+  const check = await checkServerLimit(userId, plan, event);
+  if (!check.allowed) {
+    res.status(429).json({
+      error: `Has alcanzado el límite de ${event === "analysis" ? "análisis" : "consultas"} de tu plan ${plan}.`,
+      used: check.used,
+      limit: check.limit,
+      remaining: 0,
+      upgradeUrl: "/?view=premium",
+    });
+    return false;
+  }
+  return true;
+}
+
+function getMockFallback(type: string, body: any): any {
+  // Return mock data when AI is unavailable
+  const mocks: Record<string, any> = {
+    "analyze-food": {
+      foods_detected: ["Pechuga de pollo", "Arroz integral", "Ensalada verde"],
+      estimated_calories: 450,
+      protein: 38,
+      carbs: 42,
+      fat: 14,
+      confidence: "Media",
+      digestive_risk: "Low",
+      recommendations: [
+        "Reduce las porciones de arroz si sufres de inflamación postprandial.",
+        "Evita aderezos industriales con vinagre y conservadores."
+      ],
+      alternatives: [
+        "Sustituye el arroz integral por quinoa cocida al vapor.",
+        "Cambia la pechuga de pollo frita por filete de pescado al horno."
+      ],
+      imageUrl: body.imageBase64 || ""
+    },
+    "chat": "¡Hola! Soy tu nutricionista virtual. Como el motor de IA no está configurado, trabajo en modo offline. ¿En qué puedo ayudarte con tu alimentación y salud digestiva?",
+    "generate-recipe": {
+      title: "Bowl Nutritivo de Quinoa y Verduras al Vapor",
+      category: body.category || "healthy",
+      ingredients: ["1 taza de quinoa", "1/2 calabacín", "1 zanahoria", "Aceite de oliva virgen extra"],
+      preparation: ["Cocina la quinoa 15 min.", "Saltea las verduras al vapor.", "Mezcla y sirve tibio."],
+      calories: 380,
+      benefits: ["Rico en fibra soluble que protege la mucosa intestinal."],
+      isPremium: false
+    },
+    "meal-plan": {
+      durationDays: body.durationDays || 7,
+      goal: body.objective || "healthy",
+      planDays: [{ day: 1, breakfast: "Avena con papaya", snack1: "Plátano", lunch: "Pollo con verduras", snack2: "Yogur natural", dinner: "Sopa de calabaza" }]
+    },
+    "digestive": { report: "No se detectaron patrones de inflamación significativos en tu historial reciente.", correlations: [] },
+    "grocery": {
+      productName: "Producto Genérico",
+      sugars: "Medio", fats: "Bajo", sodium: "Moderado",
+      preservatives: "Mínimos", colorants: "Ninguno",
+      ultraprocessed: "Bajo", digestiveScore: 85, nutritionScore: 78,
+      classification: "Bueno",
+      alternatives: ["Opción casera sin aditivos.", "Versión orgánica sin conservadores."],
+      analysisSummary: "Producto con perfil nutricional aceptable."
+    },
+    "coach-summary": "### Tu Coach IA 💚\n\n¡Gran trabajo esta semana! Mantén tu hidratación al día y prioriza alimentos frescos. Tu puntuación de bienestar digestivo es buena.",
+    "shopping-list": {
+      createdAt: new Date().toISOString(),
+      items: [{ category: "Proteínas", name: "Pechuga de Pollo Orgánica", checked: false }, { category: "Verduras", name: "Calabaza de Castilla", checked: false }],
+      estimatedCost: 350
+    },
+    "fitness-routine": {
+      title: "Rutina Full Body", description: "Entrenamiento completo de 45 min.",
+      timeframe: "daily",
+      sessions: [{ name: "Día 1", exercises: [{ exercise: "Sentadillas", series: 3, repetitions: 12, time: "45s", rest: "60s" }] }]
+    },
+    "mind-zen": { reframed_thought: "Tu pensamiento ha sido reestructurado hacia una perspectiva más equilibrada y consciente.", zen_insight: "La calma no es ausencia de tormenta, sino paz en medio de ella." },
+    "coach-performance": "### VitaCoach Performance ⚡\n\nTu rendimiento es estable. Recomendamos 7-8h de sueño para optimizar la recuperación."
+  };
+  return mocks[type] || {};
 }
 
 // 1. Health Status API
 app.get("/api/health", (req, res) => {
+  const cacheStats = getCacheStats();
   res.json({
     status: "ok",
     environment: process.env.NODE_ENV || "development",
-    hasDatabase: true,
-    hasGemini: !!geminiApiKey,
-    appName: "VitaAI"
+    ai: {
+      gemini: !!process.env.GEMINI_API_KEY,
+      deepseek: !!process.env.OPENROUTER_API_KEY,
+      provider: aiClient.isAvailable ? "active" : "mock",
+    },
+    stripe: !!stripeClient,
+    cache: cacheStats,
+    timestamp: new Date().toISOString(),
   });
 });
 
-// 2. Food Image Analysis API (using Gemini Vision)
+// 2. Food Image Analysis API (Gemini Vision + usage tracking + cache)
 app.post("/api/analyze-food", async (req, res) => {
-  const { imageBase64, imagesBase64, userConditions } = req.body;
+  const { imageBase64, imagesBase64, userConditions, userId } = req.body;
 
-  const imagesList = Array.isArray(imagesBase64) && imagesBase64.length > 0 
-    ? imagesBase64 
+  // Enforce usage limit
+  if (userId) {
+    const limit = await enforceLimit(req, res, "analysis");
+    if (!limit) return;
+  }
+
+  const imagesList = Array.isArray(imagesBase64) && imagesBase64.length > 0
+    ? imagesBase64
     : (imageBase64 ? [imageBase64] : []);
 
   if (imagesList.length === 0) {
-    return res.status(400).json({ error: "No se proporcionó ninguna imagen de alimento en base64" });
+    return res.status(400).json({ error: "No se proporcionó ninguna imagen en base64" });
   }
 
-  if (!aiClient) {
-    return res.json({
-      success: false,
-      error: "La API Key de Gemini no está configurada. Por favor, agrégala en la pestaña Secrets.",
-      mock: true,
-      analysis: getMockAnalysis()
-    });
+  // Check cache
+  const cacheKey = { imagesCount: imagesList.length, conditions: userConditions };
+  const cached = getCachedResponse("analyze-food", cacheKey, "vision");
+  if (cached) {
+    return res.json({ success: true, cached: true, ...cached });
+  }
+
+  if (!aiClient.isAvailable) {
+    const mock = getMockFallback("analyze-food", req.body);
+    setCachedResponse("analyze-food", cacheKey, mock, "vision");
+    if (userId) trackServerUsage(userId, "analysis");
+    return res.json({ success: true, mock: true, imageUrl: imagesList[0], ...mock });
   }
 
   try {
-    const conditionsStr = Array.isArray(userConditions) ? userConditions.join(", ") : "gastritis, colon irritable, estreñimiento";
+    const conditionsStr = Array.isArray(userConditions) ? userConditions.join(", ") : "gastritis, colon irritable";
 
-    const promptText = `
-      Eres un médico gastroenterólogo y nutricionista clínico de alta precisión. tu especialidad es la salud digestiva.
-      Analiza las fotografías proporcionadas de este plato de comida (pueden ser una o múltiples vistas: superior, lateral, lejana, cercana, ingredientes).
-      Por favor, realiza las siguientes tareas:
-      1. Combina la información visual de todas las imágenes para mejorar la precisión de las porciones, la estimación calórica y la identificación de ingredientes.
-      2. Identifica todos los alimentos o ingredientes visibles.
-      3. Estima las calorías, proteínas, grasas y carbohidratos de la porción entera mostrada en su totalidad.
-      4. Determina el nivel de confianza científico de tu estimación ("Alta", "Media", "Baja") basado en la claridad y cantidad de imágenes. Si se proveen múltiples ángulos, el nivel suele ser superior ("Alta" o "Media").
-      5. Calcular el nivel de riesgo digestivo global ("Low", "Medium" o "High") para una persona que sufre de: ${conditionsStr}.
-      6. Ofrecer recomendaciones profesionales detalladas para disminuir el riesgo, inflamación o irritación gástrica.
-      7. Ofrecer alternativas más sanas y estables que alivien el estómago.
+    const prompt = `
+Eres un médico gastroenterólogo y nutricionista clínico de alta precisión.
+Analiza la(s) fotografía(s) de este plato de comida.
+1. Identifica alimentos/ingredientes visibles.
+2. Estima calorías, proteínas (g), carbohidratos (g), grasas (g).
+3. Confianza: "Alta", "Media", "Baja".
+4. Riesgo digestivo para alguien con: ${conditionsStr} → "Low", "Medium", "High".
+5. 3 recomendaciones clínicas para reducir irritación gástrica.
+6. 3 alternativas más saludables.
 
-      IMPORTANTE: Devuelve la respuesta estrictamente bajo el formato de esquema JSON especificado. No agregues texto antes ni después de las llaves del JSON.
-    `;
+IMPORTANTE: JSON estricto sin markdown. Esquema:
+{
+  "foods_detected": ["string"],
+  "estimated_calories": int,
+  "protein": float, "carbs": float, "fat": float,
+  "confidence": "Alta|Media|Baja",
+  "digestive_risk": "Low|Medium|High",
+  "recommendations": ["string"],
+  "alternatives": ["string"]
+}`;
 
-    // Process all images to parts
-    const contentParts = imagesList.map((img: string) => {
-      const rawImage = img.replace(/^data:image\/\w+;base64,/, "");
-      return {
-        inlineData: {
-          mimeType: "image/jpeg",
-          data: rawImage
-        }
-      };
+    const result = await aiProvider.execute({
+      task: "vision",
+      prompt,
+      imageBase64: imagesList[0],
+      model: "gemini",
+      temperature: 0.3,
+      schema: {
+        type: "object",
+        properties: {
+          foods_detected: { type: "array", items: { type: "string" } },
+          estimated_calories: { type: "integer" },
+          protein: { type: "number" },
+          carbs: { type: "number" },
+          fat: { type: "number" },
+          confidence: { type: "string" },
+          digestive_risk: { type: "string" },
+          recommendations: { type: "array", items: { type: "string" } },
+          alternatives: { type: "array", items: { type: "string" } },
+        },
+      },
     });
 
-    // Add string prompt
-    contentParts.push({ text: promptText } as any);
+    const data = result.parsed || {};
+    setCachedResponse("analyze-food", cacheKey, data, "vision");
+    if (userId) trackServerUsage(userId, "analysis");
+    return res.json({ success: true, imageUrl: imagesList[0], model: result.model, ...(data as Record<string, any>) });
 
-    const response = await aiClient.models.generateContent({
-      model: "gemini-3.5-flash",
-      contents: contentParts,
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            foods_detected: {
-              type: Type.ARRAY,
-              items: { type: Type.STRING },
-              description: "Alimentos específicos detectados en el plato."
-            },
-            estimated_calories: {
-              type: Type.INTEGER,
-              description: "Calorías calculadas estimadas de la porción mostrada."
-            },
-            protein: {
-              type: Type.NUMBER,
-              description: "Gramos aproximados de proteínas."
-            },
-            fat: {
-              type: Type.NUMBER,
-              description: "Gramos aproximados de grasas totales."
-            },
-            carbs: {
-              type: Type.NUMBER,
-              description: "Gramos aproximados de carbohidratos."
-            },
-            confidence: {
-              type: Type.STRING,
-              enum: ["Alta", "Media", "Baja"],
-              description: "Nivel de confianza o precisión del diagnóstico visual del platillo."
-            },
-            digestive_risk: {
-              type: Type.STRING,
-              enum: ["Low", "Medium", "High"],
-              description: "Clasificación de riesgo digestivo para usuarios con gastritis o SII."
-            },
-            recommendations: {
-              type: Type.ARRAY,
-              items: { type: Type.STRING },
-              description: "Alertas o consejos específicos sobre el estómago."
-            },
-            alternatives: {
-              type: Type.ARRAY,
-              items: { type: Type.STRING },
-              description: "Alimentos sustitutos recomendados que tengan bajo FODMAP o prevengan acidez."
-            }
-          },
-          required: ["foods_detected", "estimated_calories", "protein", "carbs", "fat", "confidence", "digestive_risk", "recommendations", "alternatives"]
-        }
-      }
-    });
-
-    const textResult = response.text || "{}";
-    const parsedData = JSON.parse(textResult);
-
-    return res.json({
-      success: true,
-      analysis: parsedData,
-      mock: false
-    });
-
-  } catch (error: any) {
-    console.error("Gemini Vision Error:", error);
-    return res.json({
-      success: false,
-      error: error.message || "Fallo el análisis visual de Gemini",
-      mock: true,
-      analysis: getMockAnalysis()
-    });
+  } catch (err: any) {
+    console.error("analyze-food error:", err.message);
+    const mock = getMockFallback("analyze-food", req.body);
+    if (userId) trackServerUsage(userId, "analysis");
+    return res.json({ success: true, mock: true, imageUrl: imagesList[0], ...mock });
   }
 });
 
-// Helper for safe fallbacks when API is pending secrets keys
-function getMockAnalysis() {
-  return {
-    foods_detected: ["Ensalada de Quinoa", "Pollo a la plancha", "Aguacate", "Aderezo de limón"],
-    estimated_calories: 450,
-    protein: 34,
-    fat: 15,
-    carbs: 42,
-    confidence: "Alta",
-    digestive_risk: "Low",
-    recommendations: [
-      "Quinoa cocida muy bien es de fácil digestión.",
-      "El pollo al grill con condimentos ligeros favorece la mucosa gástrica.",
-      "Cuidado con la cantidad excesiva de limón si experimenta reflujo activo."
-    ],
-    alternatives: [
-      "Si el limón causa reflujo, sazone con pizca de aceite de oliva y orégano seco.",
-      "Puré de calabaza, zanahoria o camote como fuentes de carbohidratos tolerables."
-    ]
-  };
-}
-
-// 3. Digestive Chatbot AI (Specialist Gastroenterologist)
+// 3. Digestive Chatbot AI (DeepSeek via OpenRouter + usage tracking)
 app.post("/api/chat", async (req, res) => {
-  const { messages, userConditions } = req.body;
+  const { messages, userConditions, userId } = req.body;
 
   if (!messages || !Array.isArray(messages)) {
     return res.status(400).json({ error: "Historial de mensajes requerido" });
   }
 
-  if (!aiClient) {
-    return res.json({
-      success: false,
-      reply: "Hola. (Modo Demostración Activo. Configura tu GEMINI_API_KEY en la pestaña de Secretos para el chat en vivo). Como asesor digestivo virtual, te indico que para la " + (userConditions || "inflamación") + " es ideal consumir infusiones tibias de manzanilla, caldos de verdura no ácidos sin cebolla y evitar los lácteos enteros. ¿En qué puedo guiarte hoy?",
-      mock: true
-    });
+  // Enforce usage limit
+  if (userId) {
+    const limit = await enforceLimit(req, res, "chat");
+    if (!limit) return;
+  }
+
+  // Check cache (only for repeated queries)
+  const lastMsg = messages[messages.length - 1]?.content?.slice(0, 200);
+  const cached = lastMsg ? getCachedResponse("chat", { q: lastMsg, cond: userConditions }, "text") : null;
+  if (cached) {
+    return res.json({ success: true, reply: cached, cached: true });
+  }
+
+  if (!aiClient.isAvailable) {
+    const mock = getMockFallback("chat", req.body);
+    if (userId) trackServerUsage(userId, "chat");
+    return res.json({ success: true, reply: mock, mock: true });
   }
 
   try {
-    const systemPrompt = `
-      Eres un médico gastroenterólogo virtual estrella y nutricionista clínico especializado en patologías gástricas, inflamación intestinal, gastritis, síndrome de colon irritable (SII), colon irritable, estreñimiento crónico y disbiosis gástrica.
-      El nombre de la aplicación es: VitaAI.
-      Tu eslogan oficial es: "Tu asistente de nutrición inteligente, disponible 24/7."
-      Condiciones de este usuario: ${userConditions || "Colon Irritable y Gastritis"}.
+    const history: { role: "user" | "assistant"; content: string }[] = messages.slice(0, -1).map((m: any) => ({
+      role: (m.role === "model" ? "assistant" : "user") as "user" | "assistant",
+      content: String(m.content || ""),
+    }));
 
-      REGLAS DE CONDUCTA MÉDICA:
-      - Nunca realices diagnósticos absolutos ni prescribes medicamentos farmacológicos selectivos.
-      - Enfatiza siempre soluciones de estilo de vida, alimentos permitidos y alimentos prohibidos (FODMAPs altos, irritantes, café, alcohol, picantes, tomates, fritos).
-      - Recomienda infusiones (como jengibre suave, menta poleo, manzanilla, hinojo) y alimentos funcionales (fibra soluble, papaya, avena bien cocida).
-      - Si la pregunta del usuario es de carácter de emergencia (dolor agudo, sangrado), indícale con templanza y seriedad que busque asistencia médica inmediata.
-      - Sé sumamente empático, comprensivo y estructurado en la respuesta usando Markdown (listas con viñetas, términos destacados).
-    `;
-
-    // Format chat message history for the system
-    // We map client messages format into contents format of Gemini
-    const contents: any[] = [];
-    
-    // Add historic context or direct messages up to 10 to keep it clean and fast
-    const recentMessages = messages.slice(-8);
-    for (const msg of recentMessages) {
-      contents.push({
-        role: msg.role === "user" ? "user" : "model",
-        parts: [{ text: msg.content }]
-      });
-    }
-
-    const response = await aiClient.models.generateContent({
-      model: "gemini-3.5-flash",
-      contents: contents,
-      config: {
-        systemInstruction: systemPrompt,
-        temperature: 0.7
-      }
+    const result = await aiProvider.execute({
+      task: "chat",
+      prompt: messages[messages.length - 1]?.content || "",
+      systemPrompt: `Eres un médico gastroenterólogo virtual estrella y nutricionista clínico de VitaAI. Condiciones del usuario: ${userConditions || "Colon Irritable y Gastritis"}. Responde en español, tono cálido y profesional. Limita a 500 palabras. NUNCA recetes medicamentos, solo recomienda alimentos, infusiones, y hábitos.`,
+      history,
+      model: "deepseek-chat",
+      temperature: 0.7,
+      maxTokens: 1200,
     });
 
-    return res.json({
-      success: true,
-      reply: response.text || "No obtuve respuesta del especialista.",
-      mock: false
-    });
+    const reply = result.text;
+    if (lastMsg && reply) setCachedResponse("chat", { q: lastMsg, cond: userConditions }, reply, "text");
+    if (userId) trackServerUsage(userId, "chat");
+    return res.json({ success: true, reply, model: result.model });
 
-  } catch (error: any) {
-    console.error("Gemini Chat Error:", error);
-    return res.json({
-      success: false,
-      reply: "Disculpas, ocurrió una anomalía técnica en la respuesta de mi sistema. Sugiero evitar irritantes temporales y tomar agua tibia.",
-      error: error.message
-    });
+  } catch (err: any) {
+    console.error("chat error:", err.message);
+    const mock = getMockFallback("chat", req.body);
+    if (userId) trackServerUsage(userId, "chat");
+    return res.json({ success: true, reply: mock, mock: true });
   }
 });
 
@@ -664,19 +787,139 @@ function getMockMealPlan(days: number, objective: string) {
   };
 }
 
-// 6. Direct Stripe Simulation checkout portal
-app.post("/api/checkout-session", (req, res) => {
-  const { planName, priceAmount, userId } = req.body;
+// 6. Stripe Checkout Session (Real + Mock fallback)
+app.post("/api/checkout-session", async (req, res) => {
+  const { planName, priceAmount, userId, successUrl, cancelUrl } = req.body;
 
-  // Real mock response simulating a redirect or successful capture
-  const mockSessionId = "stripe_cs_live_" + Math.random().toString(36).substring(2, 11);
+  if (!userId) {
+    return res.status(400).json({ success: false, error: "userId requerido" });
+  }
 
+  // If Stripe is configured, create a real checkout session
+  if (stripeClient) {
+    try {
+      const priceId = planName === "vita_ia_max" ? STRIPE_PRICE_MAX : STRIPE_PRICE_PREMIUM;
+      const baseUrl = process.env.APP_URL || `${req.protocol}://${req.get("host")}`;
+
+      const session = await stripeClient.checkout.sessions.create({
+        mode: "subscription",
+        payment_method_types: ["card"],
+        line_items: [
+          {
+            price: priceId,
+            quantity: 1,
+          },
+        ],
+        metadata: {
+          userId: userId,
+          plan: planName,
+        },
+        success_url: successUrl || `${baseUrl}/?payment_success=true&session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url: cancelUrl || `${baseUrl}/?payment_cancelled=true`,
+        allow_promotion_codes: true,
+        billing_address_collection: "required",
+        customer_email: req.body.email || undefined,
+        subscription_data: {
+          metadata: {
+            userId: userId,
+            plan: planName,
+          },
+        },
+      });
+
+      return res.json({
+        success: true,
+        sessionId: session.id,
+        checkoutUrl: session.url,
+        real: true,
+      });
+    } catch (err: any) {
+      console.error("Stripe session creation error:", err);
+      return res.status(500).json({
+        success: false,
+        error: "Error al crear sesión de pago con Stripe: " + err.message,
+      });
+    }
+  }
+
+  // Mock fallback when Stripe is not configured
+  const mockSessionId = "cs_mock_" + Math.random().toString(36).substring(2, 11);
   return res.json({
     success: true,
     sessionId: mockSessionId,
-    checkoutUrl: `${req.protocol}://${req.get('host')}/?payment_success=true&session_id=${mockSessionId}&plan=${encodeURIComponent(planName || "premium")}`,
-    message: "Redirección simulada a compuerta Stripe exitosa."
+    checkoutUrl: `${req.protocol}://${req.get("host")}/?payment_success=true&session_id=${mockSessionId}&plan=${encodeURIComponent(planName || "premium")}`,
+    message: "Modo simulación: Stripe no está configurado. Agrega STRIPE_SECRET_KEY en Secrets.",
+    mock: true,
   });
+});
+
+// 6b. Stripe Webhook for subscription lifecycle events
+app.post("/api/stripe-webhook", async (req, res) => {
+  if (!stripeClient || !stripeWebhookSecret) {
+    return res.status(200).json({ received: true, note: "Webhook no configurado" });
+  }
+
+  const sig = req.headers["stripe-signature"] as string;
+
+  try {
+    const event = stripeClient.webhooks.constructEvent(
+      req.body,
+      sig,
+      stripeWebhookSecret
+    );
+
+    // Handle subscription events
+    switch (event.type) {
+      case "checkout.session.completed": {
+        const session = event.data.object as Stripe.Checkout.Session;
+        const userId = session.metadata?.userId;
+        const plan = session.metadata?.plan;
+        console.log(`Pago completado: userId=${userId}, plan=${plan}`);
+        // The Firestore update is handled by the frontend after redirect
+        break;
+      }
+      case "customer.subscription.updated":
+      case "customer.subscription.deleted": {
+        const subscription = event.data.object as Stripe.Subscription;
+        const userId = subscription.metadata?.userId;
+        const status = subscription.status;
+        console.log(`Suscripción actualizada: userId=${userId}, status=${status}`);
+        // In production, update Firestore here based on subscription status
+        break;
+      }
+      case "invoice.payment_failed": {
+        const invoice = event.data.object as Stripe.Invoice;
+        console.log(`Pago fallido: customer=${invoice.customer}`);
+        break;
+      }
+    }
+
+    return res.json({ received: true });
+  } catch (err: any) {
+    console.error("Webhook error:", err.message);
+    return res.status(400).json({ error: `Webhook Error: ${err.message}` });
+  }
+});
+
+// 6c. Stripe Customer Portal for subscription management
+app.post("/api/create-portal-session", async (req, res) => {
+  const { customerId, returnUrl } = req.body;
+
+  if (!stripeClient) {
+    return res.status(400).json({ success: false, error: "Stripe no configurado" });
+  }
+
+  try {
+    const portalSession = await stripeClient.billingPortal.sessions.create({
+      customer: customerId,
+      return_url: returnUrl || `${process.env.APP_URL || ""}`,
+    });
+
+    return res.json({ success: true, portalUrl: portalSession.url });
+  } catch (err: any) {
+    console.error("Portal session error:", err);
+    return res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 // 7. Detective Digestivo IA Pattern Correlator
@@ -1189,6 +1432,38 @@ app.post("/api/generate-fitness-routine", async (req, res) => {
     console.error("Routine generation api error:", err);
     return res.status(500).json({ success: false, error: err.message || "Fallo en la generación de rutinas de Gemini" });
   }
+});
+
+// 6d. Verify payment after Stripe redirect or native IAP
+app.post("/api/verify-payment", async (req, res) => {
+  const { userId, plan, sessionId } = req.body;
+
+  if (!userId) {
+    return res.status(400).json({ verified: false, error: "userId requerido" });
+  }
+
+  // If Stripe is configured, verify the session
+  if (stripeClient && sessionId && !sessionId.startsWith("cs_mock_")) {
+    try {
+      const session = await stripeClient.checkout.sessions.retrieve(sessionId);
+      if (session.payment_status === "paid" && session.metadata?.userId === userId) {
+        return res.json({
+          verified: true,
+          subscriptionStatus: plan === "vita_ia_max" ? "vita_ia_max" : "premium",
+        });
+      }
+      return res.json({ verified: false, subscriptionStatus: "free" });
+    } catch (err: any) {
+      console.error("Payment verification error:", err);
+      return res.json({ verified: false, subscriptionStatus: "free", error: err.message });
+    }
+  }
+
+  // Dev/mock mode: auto-verify
+  return res.json({
+    verified: true,
+    subscriptionStatus: plan === "vita_ia_max" ? "vita_ia_max" : "premium",
+  });
 });
 
 // Vite Middleware for client mounting and standalone production build compatibility

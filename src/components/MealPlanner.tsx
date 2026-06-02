@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { UserProfile, MealPlan, MealPlanDay } from "../types";
-import { Sparkles, Lock, ShieldCheck, HeartPulse, Printer, ChevronRight, Calendar, Info, RefreshCcw, Coffee, Apple, Soup } from "lucide-react";
+import { Sparkles, Lock, ShieldCheck, HeartPulse, ChevronRight, Calendar, Info, RefreshCcw, Coffee, Apple, Soup } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
 interface MealPlannerProps {
@@ -78,7 +78,7 @@ export default function MealPlanner({
     <div className="space-y-8 animate-fade-in" id="meal-planner-viewport">
       
       {/* Title bar */}
-      <div className="print:hidden">
+      <div>
         <h2 className="text-2xl font-bold text-slate-800">Planificador de Alimentación Terapéutico</h2>
         <p className="text-slate-500 text-sm mt-1">
           Dietas programadas clínicamente para reconstruir la mucosa gástrica y regular la motilidad del colon.
@@ -210,7 +210,7 @@ export default function MealPlanner({
                         activePlan === p ? "bg-emerald-50 text-emerald-800" : "text-slate-600"
                       }`}
                     >
-                      <span>Plan {p.durationDays} Días para SII ({new Date(p.createdAt).toLocaleDateString("es-ES")})</span>
+                      <span>Plan {p.durationDays} Días para {getObjectiveNameHeader(p.goal || selectedObjective)} ({new Date(p.createdAt).toLocaleDateString("es-ES")})</span>
                       <ChevronRight className="h-3 w-3 shrink-0" />
                     </button>
                   ))}
@@ -268,17 +268,9 @@ export default function MealPlanner({
                     <div>
                       <span className="text-[10px] text-emerald-600 uppercase font-extrabold tracking-widest bg-emerald-50 py-0.5 px-2.5 rounded-full">Esquema Guardado</span>
                       <h3 className="text-base font-bold text-slate-800 mt-1.5">Plan de Alimentación de {activePlan.durationDays} Días</h3>
-                      <p className="text-xs text-slate-400 mt-1">Objetivo: {getObjectiveNameHeader(user.objective || "colon_irritable")}</p>
+                      <p className="text-xs text-slate-400 mt-1">Objetivo: {getObjectiveNameHeader(activePlan.goal || selectedObjective)}</p>
                     </div>
 
-                    <button
-                      id="print-plan-btn"
-                      onClick={() => window.print()}
-                      className="rounded-lg border border-slate-200 p-2 text-slate-500 hover:bg-slate-50 shadow-sm transition-colors"
-                      title="Imprimir Plan"
-                    >
-                      <Printer className="h-4 w-4" />
-                    </button>
                   </div>
 
                   {/* Days tab selection ribbon */}
@@ -358,102 +350,6 @@ export default function MealPlanner({
           </div>
         </div>
       </>
-      )}
-
-      {/* HIDDEN PRINT-ONLY MEDICAL REPORT */}
-      {activePlan && (
-        <div className="hidden print:block bg-white text-slate-900 p-6 space-y-6 font-sans mx-auto max-w-4xl" id="medical-print-report">
-          <div className="flex justify-between items-center border-b-2 border-emerald-600 pb-4">
-            <div>
-              <h1 className="text-2xl font-black text-emerald-700 tracking-tight">VITAAI CLINICS V4 PROFESSIONAL</h1>
-              <p className="text-[10px] text-slate-500 uppercase font-mono tracking-widest mt-0.5">Reporte de Prescripción Nutricional e Historial Deportivo Basado en Evidencia</p>
-            </div>
-            <div className="text-right text-xs text-slate-400 font-mono">
-              <div>Fecha: {new Date(activePlan.createdAt).toLocaleDateString("es-ES")}</div>
-              <div>Paciente: {user.name || "Usuario Premium"}</div>
-            </div>
-          </div>
-
-          {/* Patient metrics cards */}
-          <div className="grid grid-cols-4 gap-4 border border-slate-200 bg-slate-50 p-4 rounded-xl">
-            <div>
-              <span className="text-[10px] text-slate-400 uppercase font-bold block">Edad</span>
-              <span className="text-sm font-bold text-slate-800">{user.age || 30} años</span>
-            </div>
-            <div>
-              <span className="text-[10px] text-slate-400 uppercase font-bold block">Peso</span>
-              <span className="text-sm font-bold text-slate-800">{user.weight || 70} kg</span>
-            </div>
-            <div>
-              <span className="text-[10px] text-slate-400 uppercase font-bold block">Estatura</span>
-              <span className="text-sm font-bold text-slate-800">{user.height || 170} cm</span>
-            </div>
-            <div>
-              <span className="text-[10px] text-slate-400 uppercase font-bold block">Condición</span>
-              <span className="text-xs font-bold text-emerald-805">{getObjectiveNameHeader(selectedObjective)}</span>
-            </div>
-          </div>
-
-          {/* Medical recommendation explanation */}
-          <div className="space-y-1.5 text-xs">
-            <h4 className="font-bold text-emerald-800 text-[11px] uppercase tracking-wider">PRESCRIPCIÓN NUTROLÓGICA Y BIOREGULACIÓN GASTRONÓMICA:</h4>
-            <p className="text-slate-600 leading-relaxed text-[11px]">
-              Este reporte personalizado ha sido generado por el motor clínico de VitaAI V4 de acuerdo a sus parámetros médicos ingresados. Su objetivo prioritario es desinflamar progresivamente la mucosa del estómago y modular receptores entéricos gástricos para mejorar la asimilación y mitigar reflujos u opresiones gástricas. Se recomienda enfáticamente mantenerse hidratado, masticar al menos 30 veces cada porción y respetar la secuencia fisiológica diaria.
-            </p>
-          </div>
-
-          {/* Complete multi-day menu */}
-          <div className="space-y-4">
-            <h3 className="text-xs font-bold text-slate-850 border-b border-slate-200 pb-1 uppercase tracking-wider">Desglose de Menú Diario Programado Completo</h3>
-            {activePlan.planDays.map((pDay, dIdx) => (
-              <div key={dIdx} className="border border-slate-200 rounded-xl p-3 bg-white space-y-2.5 shadow-sm break-inside-avoid">
-                <div className="flex justify-between items-center text-xs font-extrabold text-emerald-800 uppercase tracking-widest border-b border-slate-100 pb-1">
-                  <span>Plan de Alimentación - Día {pDay.day}</span>
-                  <span className="bg-emerald-50 text-[9px] text-emerald-700 px-2 py-0.5 rounded">Gastroprotector Clínico</span>
-                </div>
-                <div className="grid grid-cols-5 gap-3">
-                  <div className="text-[9px] leading-relaxed">
-                    <strong className="text-amber-700 uppercase block font-mono text-[8px] mb-0.5">🍳 Desayuno:</strong>
-                    <span className="text-slate-600">{pDay.meals.breakfast}</span>
-                  </div>
-                  <div className="text-[9px] leading-relaxed">
-                    <strong className="text-emerald-700 uppercase block font-mono text-[8px] mb-0.5">🥑 Merienda 1:</strong>
-                    <span className="text-slate-600">{pDay.meals.snack1}</span>
-                  </div>
-                  <div className="text-[9px] leading-relaxed">
-                    <strong className="text-blue-700 uppercase block font-mono text-[8px] mb-0.5">🍲 Almuerzo:</strong>
-                    <span className="text-slate-600">{pDay.meals.lunch}</span>
-                  </div>
-                  <div className="text-[9px] leading-relaxed">
-                    <strong className="text-emerald-700 uppercase block font-mono text-[8px] mb-0.5">🥕 Merienda 2:</strong>
-                    <span className="text-slate-600">{pDay.meals.snack2}</span>
-                  </div>
-                  <div className="text-[9px] leading-relaxed">
-                    <strong className="text-indigo-700 uppercase block font-mono text-[8px] mb-0.5">🥣 Cena:</strong>
-                    <span className="text-slate-600">{pDay.meals.dinner}</span>
-                  </div>
-                </div>
-                {pDay.dailyTips && (
-                  <div className="mt-1 pb-0.5 text-[9px] text-slate-500 italic flex items-center gap-1 border-t border-slate-50 pt-1.5">
-                    <span>💡 Consejo Gástrico:</span>
-                    <span>{pDay.dailyTips}</span>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-
-          {/* Medical stamp signature placeholder */}
-          <div className="pt-6 flex justify-between items-end border-t border-dashed border-slate-200 mt-6">
-            <div className="text-[10px] text-slate-400 font-mono">
-              <div>VitaAI Automated Medical Intelligence v4.2</div>
-              <div>Firma Certificada Hash: {Math.random().toString(36).substring(2, 10).toUpperCase()}</div>
-            </div>
-            <div className="text-center w-44 border-t border-slate-300 pt-1 text-[10px] text-slate-500">
-              Firma y Sello Nutriólogo AI
-            </div>
-          </div>
-        </div>
       )}
 
     </div>

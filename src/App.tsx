@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from "react";
-import { auth, db } from "./lib/firebase";
+import { auth, db, getRedirectResult } from "./lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
 import { collection, query, where, orderBy, getDocs, doc, getDoc, setDoc, updateDoc, deleteDoc } from "firebase/firestore";
 import { UserProfile, FoodAnalysis, Recipe, MealPlan, ChatMessage, InAppNotification } from "./types";
+import { ThemeProvider, useTheme } from "./context/ThemeContext";
+import { DevModeProvider, useDevMode } from "./context/DevModeContext";
 
 // Import custom modular views
 import Header from "./components/Header";
@@ -35,10 +37,12 @@ import { motion, AnimatePresence } from "motion/react";
 const MAX_FREE_SCANS = 3;
 
 export default function App() {
+  const { isDarkMode, toggleTheme } = useTheme();
+  const { isDevMode } = useDevMode();
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [currentView, setCurrentView] = useState<string>("dashboard");
-  const isDarkMode = false;
+  const [needsOnboarding, setNeedsOnboarding] = useState(false);
 
   // Core collections states
   const [analyses, setAnalyses] = useState<FoodAnalysis[]>([]);
@@ -51,8 +55,62 @@ export default function App() {
   // Remaining daily scan counters
   const [scansTodayCount, setScansTodayCount] = useState<number>(0);
 
+  // Handle Stripe payment success redirect
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const paymentSuccess = params.get("payment_success");
+    const plan = params.get("plan");
+    const sessionId = params.get("session_id");
+
+    if (paymentSuccess === "true" && plan && currentUser) {
+      // Clean URL params
+      const url = new URL(window.location.href);
+      url.searchParams.delete("payment_success");
+      url.searchParams.delete("plan");
+      url.searchParams.delete("session_id");
+      window.history.replaceState({}, "", url.toString());
+
+      // Update subscription status
+      const newStatus = plan === "vita_ia_max" ? "vita_ia_max" : "premium";
+      handleUpgradeSuccess().then(() => {
+        // Upgrade will update currentUser state
+      });
+    }
+  }, [currentUser]);
+
   // Initialize Auth state listener
   useEffect(() => {
+    // Handle Google redirect sign-in result (page reload after redirect)
+    getRedirectResult(auth)
+      .then(async (result) => {
+        if (result?.user) {
+          const user = result.user;
+          console.log("Google redirect sign-in successful:", user.email);
+          // Save profile info to Firestore if new user
+          try {
+            const userRef = doc(db, "users", user.uid);
+            await setDoc(
+              userRef,
+              {
+                uid: user.uid,
+                name: user.displayName || user.email?.split("@")[0] || "Usuario VitaIA",
+                email: user.email || "",
+                subscriptionStatus: "free",
+                createdAt: new Date().toISOString(),
+              },
+              { merge: true }
+            );
+          } catch (e) {
+            console.warn("Could not save redirect user to Firestore:", e);
+          }
+        }
+      })
+      .catch((err) => {
+        if (err.code !== "auth/no-current-user") {
+          console.warn("Redirect sign-in error:", err.code, err.message);
+        }
+      });
+
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       setAuthLoading(true);
       if (firebaseUser) {
@@ -74,6 +132,12 @@ export default function App() {
               objective: data.objective,
               createdAt: data.createdAt || new Date().toISOString()
             });
+            // If user has no objective/age set, show onboarding
+            if (!data.age && !data.objective) {
+              setNeedsOnboarding(true);
+            } else {
+              setNeedsOnboarding(false);
+            }
           } else {
             // Document does not exist, provision new model
             const newProfile: UserProfile = {
@@ -85,6 +149,7 @@ export default function App() {
             };
             await setDoc(docRef, newProfile);
             setCurrentUser(newProfile);
+            setNeedsOnboarding(true); // New user needs onboarding
           }
         } catch (err) {
           console.warn("Database rules restriction or offline state. Loading mock user profiles.", err);
@@ -374,15 +439,27 @@ export default function App() {
           handleMarkNotificationsAsRead();
         }}
         isDarkMode={isDarkMode}
-        onToggleTheme={() => {}}
+        onToggleTheme={toggleTheme}
       />
 
       {/* Main viewport area */}
       <main className="mx-auto w-full max-w-7xl px-4 py-8 sm:px-6 lg:px-8 flex-1">
         
-        {!currentUser ? (
+        {/* Dev Mode Banner */}
+        {isDevMode && (
+          <div className="mb-4 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 px-4 py-2.5 flex items-center justify-between text-xs">
+            <span className="font-bold text-amber-700 dark:text-amber-400 flex items-center gap-2">
+              🛠️ <span>Modo Desarrollo — Los pagos se simulan automáticamente</span>
+            </span>
+            <span className="text-amber-600 dark:text-amber-500 font-mono text-[10px]">
+              Stripe/IAP desactivado
+            </span>
+          </div>
+        )}
+        
+        {!currentUser || needsOnboarding ? (
           
-          /* SignUp, Login, credential validation cards */
+          /* SignUp, Login, credential validation cards OR onboarding wizard */
           <AuthPanel onAuthSuccess={handleAuthSuccess} />
 
         ) : (

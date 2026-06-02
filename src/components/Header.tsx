@@ -110,6 +110,19 @@ export default function Header({
 
 
 
+          {/* Dark Mode Toggle */}
+          <button
+            onClick={onToggleTheme}
+            className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-full transition-colors"
+            title={isDarkMode ? "Modo claro" : "Modo oscuro"}
+          >
+            {isDarkMode ? (
+              <Sun className="h-5 w-5 text-amber-400" />
+            ) : (
+              <Moon className="h-5 w-5" />
+            )}
+          </button>
+
           {/* Notifications Alert */}
           {user && (
             <button
